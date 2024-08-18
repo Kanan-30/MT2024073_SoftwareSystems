@@ -1,3 +1,7 @@
+/* Name: Kanan Gupta
+ * Roll No. MT2024073
+ * Problem:  Write a program to create a file and print the file descriptor value. Use creat ( ) system call
+ * */
 #include <stdio.h>
 #include<stdlib.h>
 #include<unistd.h>

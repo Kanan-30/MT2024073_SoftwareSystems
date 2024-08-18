@@ -1,3 +1,8 @@
+/* Name: Kanan Gupta
+ * Roll No. MT2024073
+ * Problem:  Write a program to open an existing file with read write mode. Try O_EXCL flag also.
+ * */
+
 #include<fcntl.h>
 #include<stdio.h>
 
