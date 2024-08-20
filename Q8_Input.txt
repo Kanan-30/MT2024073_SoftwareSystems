@@ -1,0 +1,8 @@
+Name: Kanan Gupta
+ROll No: MT2024073
+This file contains Question 8
+which is as below:
+Q8: Write a program to open a file in read only mode, read line by line and display each line as it is read.
+Close the file when end of file is reached.
+
+Thank you.
