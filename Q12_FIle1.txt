@@ -1,0 +1,6 @@
+Name: Kanan Gupta
+ROll No: MT2024073
+This file contains Question 12
+which is as below:
+Q12: Write a program to find out the opening mode of a file. Use fcntl.
+Thank you.

@@ -1,0 +1,10 @@
+Name: Kanan Gupta
+ROll No: MT2024073
+This file contains Question 11
+which is as below:
+Q11: Write a program to open a file, duplicate the file descriptor and append the file with both the
+descriptors and check whether the file is updated properly or not.
+a. use dup
+b. use dup2
+c. use fcntl
+Thank you.
