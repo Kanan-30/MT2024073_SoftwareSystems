@@ -8,3 +8,7 @@ a. use dup
 b. use dup2
 c. use fcntl
 Thank you.
+Original Update!
+Dup Method 1!
+Dup Method 2!
+Dup Method 3!
