@@ -1,0 +1,7 @@
+Name: Kanan Gupta
+ROll No: MT2024073
+This file contains Question 16
+which is as below:
+Q16: Write a program to perform mandatory locking.
+a. Implement write lock
+b. Implement read lock
