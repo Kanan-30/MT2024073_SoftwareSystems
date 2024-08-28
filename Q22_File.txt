@@ -1,0 +1,2 @@
+Added text by parent process!
+Added text by child process!
