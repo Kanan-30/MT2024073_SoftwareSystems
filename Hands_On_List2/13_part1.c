@@ -7,4 +7,25 @@ the signal or not.
  * */
  
 
+#include<signal.h>
+#include<unistd.h>
+#include<stdio.h>
+#include<stdlib.h>
+
+
+void sig_handler(int sig){
+        printf("SIGSTOP Caught %d\n",sig);
+        exit(0);
+}
+
+int main(){
+
+        signal(SIGSTOP, sig_handler);
+        printf("Catching SIGSTOP\n");
+        sleep(20);
+        printf("NO SIGSTOP within 20 seconds");
+
+return 0;
+
+}
 
