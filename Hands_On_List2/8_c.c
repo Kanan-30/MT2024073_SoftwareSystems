@@ -17,9 +17,11 @@ void sig_handler(int sig){
 }
 
 int main(){
-
+	int i,j;
+	i =5;
 	signal(SIGFPE, sig_handler);
 	printf("Catching SIGFPE\n");
+	j = 5/0;
 	sleep(10);
 	printf("NO SIGFPE within 10 seconds");
 

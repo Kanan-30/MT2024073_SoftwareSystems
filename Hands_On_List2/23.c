@@ -18,7 +18,9 @@ int main() {
     int fd[2];
     pipe(fd);
 
-    int pipe_size = fcntl(fd[0], F_GETPIPE_SZ);
+    //int pipe_size = fcntl(fd[0], F_GETPIPE_SZ);
+    int pipe_size = fcntl(fd[0], _PC_PIPE_BUF);
+    
     printf("Pipe size (circular buffer size): %d bytes\n", pipe_size);
 
     close(fd[0]);
