@@ -10,6 +10,7 @@
 #define BUFFER_SIZE 1024
 #define DB_FILE "customer_db.txt"
 
+// Struct for storing customer information
 typedef struct {
     char customer_id[20];
     char username[50];
@@ -18,26 +19,26 @@ typedef struct {
     int loan_numbers;
 } Customer;
 
-
 // Function prototypes
 void *handle_client(void *arg);
 void customer_menu(int client_socket);
 void employee_menu(int client_socket);
 void manager_menu(int client_socket);
 void admin_menu(int client_socket);
-//void save_customer_to_db(Customer *customer);
 
+void customer_login(int client_socket);
+void register_new_customer(int client_socket, const char *username, const char *password);
+void save_customer_to_db(Customer *customer);
+int generate_new_customer_id();
 int customer_exists(const char *username);
 int verify_customer(const char *username, const char *password);
-void register_new_customer(int client_socket);
-void customer_login(int client_socket) ;
+void update_customer_password(const char *username, const char *new_password);
+
 // Structure to hold client details
 typedef struct {
     int socket;
     struct sockaddr_in address;
 } client_t;
-
-
 
 int main() {
     int server_socket, client_socket;
@@ -125,6 +126,66 @@ void *handle_client(void *arg) {
     free(client);
     return NULL;
 }
+
+void customer_login(int client_socket) {
+    char buffer[BUFFER_SIZE];
+    char username[50], password[50];
+
+    // Prompt for username
+    send(client_socket, "Enter Username: ", BUFFER_SIZE, 0);
+    recv(client_socket, username, sizeof(username), 0);
+
+    // Remove trailing newline characters
+    username[strcspn(username, "\r\n")] = 0;
+
+    // Check if customer exists
+    if (customer_exists(username)) {
+        // Existing customer, prompt for password
+        send(client_socket, "Enter Password: ", BUFFER_SIZE, 0);
+        recv(client_socket, password, sizeof(password), 0);
+
+        // Remove trailing newline characters
+        password[strcspn(password, "\r\n")] = 0;
+
+        // Verify credentials
+        if (verify_customer(username, password)) {
+            send(client_socket, "Login successful!\n", BUFFER_SIZE, 0);
+        } else {
+            send(client_socket, "Login failed! Invalid username or password.\n", BUFFER_SIZE, 0);
+        }
+    } else {
+        // New customer, prompt for password and register
+        send(client_socket, "Username not found. Registering a new account... \n Enter new Password...\n", BUFFER_SIZE, 0);
+        recv(client_socket, password, sizeof(password), 0);
+
+        // Remove trailing newline characters
+        password[strcspn(password, "\r\n")] = 0;
+
+        // Register new customer
+        register_new_customer(client_socket, username, password);
+        send(client_socket, "Registration successful!\n", BUFFER_SIZE, 0);
+    }
+}
+
+void register_new_customer(int client_socket, const char *username, const char *password) {
+    Customer new_customer;
+
+    // Generate a new customer ID
+    int customer_id = generate_new_customer_id();
+    sprintf(new_customer.customer_id, "%d", customer_id);
+
+    // Set username and password
+    strcpy(new_customer.username, username);
+    strcpy(new_customer.password, password);
+
+    // Set initial account balance and loan numbers
+    new_customer.account_balance = 0.0;
+    new_customer.loan_numbers = 0;
+
+    // Save customer to the database
+    save_customer_to_db(&new_customer);
+}
+
 void save_customer_to_db(Customer *customer) {
     FILE *file = fopen(DB_FILE, "a");
     if (file == NULL) {
@@ -132,130 +193,212 @@ void save_customer_to_db(Customer *customer) {
         return;
     }
 
-    fprintf(file, "%d %s %s %.2f %d\n",
-            customer->id,
+    fprintf(file, "%s,%s,%s,%.2f,%d\n",
+            customer->customer_id,
             customer->username,
             customer->password,
             customer->account_balance,
-            customer->loan_numbers_applied);
+            customer->loan_numbers);
     fclose(file);
 }
 
 int customer_exists(const char *username) {
     FILE *db_file = fopen(DB_FILE, "r");
     if (!db_file) {
-        perror("Unable to open customer database");
-        return 0; // Assume user doesn't exist if the database cannot be accessed
+        // Database file does not exist yet
+        return 0;
     }
 
     char line[BUFFER_SIZE];
     while (fgets(line, sizeof(line), db_file)) {
-        // Assume each line in the db file contains "username,password,..."
-        char *token = strtok(line, ",");
-        if (token != NULL && strcmp(token, username) == 0) {
+        char *token;
+        char file_customer_id[20];
+        char file_username[50];
+
+        // Get customer ID
+        token = strtok(line, ",");
+        if (token != NULL) {
+            strcpy(file_customer_id, token);
+        }
+
+        // Get username
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            strcpy(file_username, token);
+        }
+
+        // Compare usernames
+        if (strcmp(file_username, username) == 0) {
             fclose(db_file);
-            return 1; // User exists
+            return 1;
         }
     }
 
     fclose(db_file);
-    return 0; // User does not exist
+    return 0;
 }
-
 
 int verify_customer(const char *username, const char *password) {
     FILE *db_file = fopen(DB_FILE, "r");
     if (!db_file) {
-        perror("Unable to open customer database");
-        return 0; // Assume verification fails if the database cannot be accessed
+        // Database file does not exist yet
+        return 0;
     }
 
     char line[BUFFER_SIZE];
     while (fgets(line, sizeof(line), db_file)) {
-        char *token = strtok(line, ",");
-        if (token != NULL && strcmp(token, username) == 0) {
-            // Assuming the second token is the password
-            token = strtok(NULL, ",");
-            if (token != NULL && strcmp(token, password) == 0) {
-                fclose(db_file);
-                return 1; // Credentials are valid
+        char *token;
+        char file_customer_id[20];
+        char file_username[50];
+        char file_password[50];
+
+        // Get customer ID
+        token = strtok(line, ",");
+        if (token != NULL) {
+            strcpy(file_customer_id, token);
+        }
+
+        // Get username
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            strcpy(file_username, token);
+        }
+
+        // Get password
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            strcpy(file_password, token);
+        }
+
+        // Remove trailing newline from password
+        file_password[strcspn(file_password, "\r\n")] = 0;
+
+        // Compare username and password
+        if (strcmp(file_username, username) == 0 && strcmp(file_password, password) == 0) {
+            fclose(db_file);
+            return 1;
+        }
+    }
+
+    fclose(db_file);
+    return 0;
+}
+
+int generate_new_customer_id() {
+    FILE *db_file = fopen(DB_FILE, "r");
+    if (!db_file) {
+        // Database file does not exist yet, start IDs from 1
+        return 1;
+    }
+
+    char line[BUFFER_SIZE];
+    int last_id = 0;
+
+    while (fgets(line, sizeof(line), db_file)) {
+        char *token;
+        char file_customer_id[20];
+
+        // Get customer ID
+        token = strtok(line, ",");
+        if (token != NULL) {
+            strcpy(file_customer_id, token);
+            int id = atoi(file_customer_id);
+            if (id > last_id) {
+                last_id = id;
             }
         }
     }
 
     fclose(db_file);
-    return 0; // Credentials are invalid
+    return last_id + 1;
 }
 
+// Function to update a customer's password in the database file
+void update_customer_password(const char *username, const char *new_password) {
+    FILE *db_file = fopen(DB_FILE, "r+"); // Open the file for reading and writing
+    if (!db_file) {
+        perror("Unable to open customer database file for password update");
+        return;
+    }
 
-void register_new_customer(int client_socket) {
-    char buffer[BUFFER_SIZE];
-    Customer new_customer;
+    char temp_file_name[] = "temp_db.txt";
+    FILE *temp_file = fopen(temp_file_name, "w");
+    if (!temp_file) {
+        perror("Unable to create temporary file");
+        fclose(db_file);
+        return;
+    }
 
-    // Collect customer details
-    send(client_socket, "Enter Customer ID: ", BUFFER_SIZE, 0);
-    recv(client_socket, buffer, BUFFER_SIZE, 0);
-    strcpy(new_customer.customer_id, buffer);
+    char line[BUFFER_SIZE];
+    int found = 0;
 
-    send(client_socket, "Enter Username: ", BUFFER_SIZE, 0);
-    recv(client_socket, buffer, BUFFER_SIZE, 0);
-    strcpy(new_customer.username, buffer);
+    while (fgets(line, sizeof(line), db_file)) {
+        char *token;
+        char file_customer_id[20];
+        char file_username[50];
+        char file_password[50];
+        double account_balance;
+        int loan_numbers;
 
-    send(client_socket, "Enter Password: ", BUFFER_SIZE, 0);
-    recv(client_socket, buffer, BUFFER_SIZE, 0);
-    strcpy(new_customer.password, buffer);
-
-    // Initial account balance and loan numbers
-    new_customer.account_balance = 0.0;
-    new_customer.loan_numbers = 0;
-
-    // Store the new customer in the database
-    FILE *file = fopen(DB_FILE, "a");
-    fwrite(&new_customer, sizeof(Customer), 1, file);
-    fclose(file);
-
-    send(client_socket, "Registration successful!\n", BUFFER_SIZE, 0);
-}
-
-void customer_login(int client_socket) {
-    char buffer[BUFFER_SIZE];
-    char username[50], password[50];
-
-    // Prompt the user to enter username
-    send(client_socket, "Enter Username: ", BUFFER_SIZE, 0);
-    recv(client_socket, username, sizeof(username), 0); // Receive username
-
-    // Check if the customer is already registered
-    if (customer_exists(username)) {
-        // Existing customer, prompt for password
-        send(client_socket, "Enter Password: ", BUFFER_SIZE, 0);
-        recv(client_socket, password, sizeof(password), 0); // Receive password
-
-        // Verify credentials
-        if (verify_customer(username, password)) {
-            send(client_socket, "Login successful!\n", BUFFER_SIZE, 0);
-            send(client_socket, username, strlen(username) + 1, 0);  // Send username back to client
-            // The customer menu will be shown after this function
-        } else {
-            send(client_socket, "Login failed! Invalid username or password.\n", BUFFER_SIZE, 0);
+        // Get customer ID
+        token = strtok(line, ",");
+        if (token != NULL) {
+            strcpy(file_customer_id, token);
         }
+
+        // Get username
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            strcpy(file_username, token);
+        }
+
+        // Get password
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            strcpy(file_password, token);
+        }
+
+        // Get account balance
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            account_balance = atof(token);
+        }
+
+        // Get loan numbers
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            loan_numbers = atoi(token);
+        }
+
+        if (strcmp(file_username, username) == 0) {
+            found = 1;
+            strcpy(file_password, new_password); // Update the password
+        }
+
+        // Write the updated data to the temporary file
+        fprintf(temp_file, "%s,%s,%s,%.2f,%d\n", file_customer_id, file_username, file_password, account_balance, loan_numbers);
+    }
+
+    fclose(db_file);
+    fclose(temp_file);
+
+    // Replace the old database file with the new one
+    remove(DB_FILE);
+    rename(temp_file_name, DB_FILE);
+
+    if (found) {
+        printf("Password updated successfully for username: %s\n", username);
     } else {
-        // First-time user, prompt for registration
-        send(client_socket, "You are a new customer. Registering you now...\n", BUFFER_SIZE, 0);
-        register_new_customer(client_socket);
-        send(client_socket, username, strlen(username) + 1, 0);  // Send username back to client
-        // The customer menu will be shown after registration
+        printf("Username not found in the database: %s\n", username);
     }
 }
 
+// Customer menu implementation
 void customer_menu(int client_socket) {
-     int choice;
     char buffer[BUFFER_SIZE];
-    char username[50];  // To store the username after successful login
-    int logged_in = 0;  // To track if the user has logged in
-
-
-    do {
+    int choice;
+    int logged_in = 0; 
+     do {
         sprintf(buffer, "\nCustomer Menu:\n"
                         "1. Login System\n"
                         "2. Change Password\n"
@@ -273,17 +416,38 @@ void customer_menu(int client_socket) {
         send(client_socket, buffer, BUFFER_SIZE, 0);
         recv(client_socket, buffer, BUFFER_SIZE, 0);
         choice = atoi(buffer);
-           
-        switch (choice) {
-            case 1: 
-		customer_login(client_socket);
-                recv(client_socket, username, 50, 0);  // Receive username after successful login
-                logged_in = 1;  // Mark the user as logged in
-                break;
-            case 2: // Change Password
-                // Placeholder for implementation
-                break;
-            case 3: // View Account Balance
+
+    switch (choice) {
+        case 1:
+            customer_login(client_socket);
+	    logged_in = 1;
+            break;
+        case 2:
+            // Change password functionality
+            char username[50], old_password[50], new_password[50];
+
+            send(client_socket, "Enter Username: ", BUFFER_SIZE, 0);
+            recv(client_socket, username, sizeof(username), 0);
+            username[strcspn(username, "\r\n")] = 0;
+
+            send(client_socket, "Enter Old Password: ", BUFFER_SIZE, 0);
+            recv(client_socket, old_password, sizeof(old_password), 0);
+            old_password[strcspn(old_password, "\r\n")] = 0;
+
+            // Verify the old password
+            if (verify_customer(username, old_password)) {
+                send(client_socket, "Enter New Password: ", BUFFER_SIZE, 0);
+                recv(client_socket, new_password, sizeof(new_password), 0);
+                new_password[strcspn(new_password, "\r\n")] = 0;
+
+                // Update the password
+                update_customer_password(username, new_password);
+                send(client_socket, "Password changed successfully.\n", BUFFER_SIZE, 0);
+            } else {
+                send(client_socket, "Old password is incorrect.\n", BUFFER_SIZE, 0);
+            }
+            break;
+        case 3: // View Account Balance
                 // Placeholder for implementation
                 break;
             case 4: // Deposit Money
@@ -306,12 +470,11 @@ void customer_menu(int client_socket) {
                 break;
             case 10: // Logout
                 send(client_socket, "Logging out...\n", BUFFER_SIZE, 0);
-		logged_in =0;
-		return;
-                break;
+                logged_in = 0;
+                return;
             case 11: // Exit
                 send(client_socket, "Exiting...\n", BUFFER_SIZE, 0);
-		close(client_socket); // Close the socket and exit
+                close(client_socket); // Close the socket and exit
                 pthread_exit(NULL); // Terminate the thread
                 break;
             default:
@@ -366,11 +529,10 @@ void employee_menu(int client_socket) {
                 break;
             case 8: // Logout
                 send(client_socket, "Logging out...\n", BUFFER_SIZE, 0);
-		return;
-                break;
+                return;
             case 9: // Exit
                 send(client_socket, "Exiting...\n", BUFFER_SIZE, 0);
-		close(client_socket); // Close the socket and exit
+                close(client_socket); // Close the socket and exit
                 pthread_exit(NULL); // Terminate the thread
                 break;
             default:
@@ -415,23 +577,19 @@ void manager_menu(int client_socket) {
             case 5:
                 // Placeholder for Change Password
                 break;
-
             case 6:  // Logout
                 send(client_socket, "Logging out...\n", BUFFER_SIZE, 0);
                 return;  // Return to the main driver menu (do NOT close the connection)
-            
             case 7:  // Exit
                 send(client_socket, "Exiting...\n", BUFFER_SIZE, 0);
                 close(client_socket);  // Close the socket and terminate the session
                 pthread_exit(NULL);  // Terminate the thread
-            
             default:
                 send(client_socket, "Invalid choice!\n", BUFFER_SIZE, 0);
                 break;
         }
     } while (choice != 7);  // Loop until Exit is selected
 }
-
 
 void admin_menu(int client_socket) {
     int choice;
@@ -467,11 +625,9 @@ void admin_menu(int client_socket) {
             case 5: // Logout
                 send(client_socket, "Logging out...\n", BUFFER_SIZE, 0);
                 return;
-		break;
-
             case 6: // Exit
                 send(client_socket, "Exiting...\n", BUFFER_SIZE, 0);
-		close(client_socket); // Close the socket and exit
+                close(client_socket); // Close the socket and exit
                 pthread_exit(NULL); // Terminate the thread
                 break;
             default:
@@ -480,4 +636,3 @@ void admin_menu(int client_socket) {
         }
     } while (choice != 5 && choice != 6);
 }
-
