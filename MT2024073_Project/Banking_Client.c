@@ -12,6 +12,7 @@ int main() {
     int sock;
     struct sockaddr_in server_address;
     char buffer[BUFFER_SIZE];
+    int choice;
 
     while (1) {
         // Create socket
@@ -34,29 +35,52 @@ int main() {
         }
 
         while (1) {
+            // Main role selection menu
             memset(buffer, 0, BUFFER_SIZE);
-            recv(sock, buffer, BUFFER_SIZE, 0);
-            printf("%s", buffer);
-            
-            // Get user input
+            recv(sock, buffer, BUFFER_SIZE, 0); // Receive the main driver menu (role selection)
+            printf("%s", buffer);  // Display the main menu to the client
+
+            // Get the user's role selection (Customer, Employee, Manager, Admin)
             fgets(buffer, BUFFER_SIZE, stdin);
-            send(sock, buffer, strlen(buffer), 0);
-            
-            // Check for exit condition
-            if (strncmp(buffer, "11", 2) == 0) { // Check if Exit is chosen
-                printf("Exiting client...\n");
-                close(sock);
-                return 0; // Exit the client
+            send(sock, buffer, strlen(buffer), 0); // Send the selected role to the server
+
+            int logged_out = 0;  // Track whether the user logged out to re-display the main menu
+
+            // Inside the selected role menu loop (Customer, Employee, Manager, Admin)
+            while (1) {
+                memset(buffer, 0, BUFFER_SIZE);
+                recv(sock, buffer, BUFFER_SIZE, 0);  // Receive the specific role menu (e.g., Customer menu)
+                printf("%s", buffer);  // Display the specific role menu to the client
+
+                // Get user input for the menu option
+                fgets(buffer, BUFFER_SIZE, stdin);
+                send(sock, buffer, strlen(buffer), 0);  // Send the selected option to the server
+
+                choice = atoi(buffer);  // Convert user input to integer
+
+                // Check if the choice is Logout or Exit
+                if (choice == 10 || choice == 8 || choice == 5 || choice == 4) {  // Logout for different menus
+                    printf("Logging out...\n");
+                    logged_out = 1;
+                    break;  // Break from the role-specific menu loop, but remain in the outer loop for role selection
+                }
+
+                if (choice == 11 || choice == 9 || choice == 6 || choice == 5) {  // Exit for different menus
+                    printf("Exiting client...\n");
+                    close(sock);  // Close the socket and exit
+                    return 0;  // Terminate the client program
+                }
             }
 
-            if (strncmp(buffer, "10", 2) == 0) { // Check if Logout is chosen
-                printf("Logging out...\n");
-                close(sock);
-                break; // Break out to re-establish the connection for re-login
+            // If logged out, break from the main loop to re-display the main driver menu
+            if (logged_out) {
+                break;  // Break from the role-specific menu and go back to role selection
             }
         }
+
+        // Close the socket only if exiting the entire application
+        close(sock);
     }
 
     return 0;
 }
-
