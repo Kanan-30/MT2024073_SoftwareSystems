@@ -10,6 +10,8 @@
 #define BUFFER_SIZE 1024
 #define DB_FILE "customer_db.txt"
 
+char logged_in_username[50]="";
+
 // Struct for storing customer information
 typedef struct {
     char customer_id[20];
@@ -33,7 +35,10 @@ int generate_new_customer_id();
 int customer_exists(const char *username);
 int verify_customer(const char *username, const char *password);
 void update_customer_password(const char *username, const char *new_password);
-
+double get_customer_balance(const char* username);
+void deposit_amount(const char *username, double amount);
+void save_updated_customer_balance(const char *username, double new_balance);
+void withdraw_amount(const char *username, double amount);
 // Structure to hold client details
 typedef struct {
     int socket;
@@ -150,6 +155,9 @@ void customer_login(int client_socket) {
         // Verify credentials
         if (verify_customer(username, password)) {
             send(client_socket, "Login successful!\n", BUFFER_SIZE, 0);
+	    strcpy(logged_in_username,username);
+	    //printf(logged_in_username);
+	    customer_menu(client_socket);
         } else {
             send(client_socket, "Login failed! Invalid username or password.\n", BUFFER_SIZE, 0);
         }
@@ -393,6 +401,141 @@ void update_customer_password(const char *username, const char *new_password) {
     }
 }
 
+double get_customer_balance(const char *username) {
+    FILE *db_file = fopen(DB_FILE, "r");
+    if (!db_file) {
+        return 0.0;
+    }
+
+    char line[BUFFER_SIZE];
+    while (fgets(line, sizeof(line), db_file)) {
+        char *token;
+        char file_customer_id[20];
+        char file_username[50];
+        char file_password[50];
+        double file_account_balance;
+
+        // Get customer ID
+        token = strtok(line, ",");
+        if (token != NULL) {
+            strcpy(file_customer_id, token);
+        }
+
+        // Get username
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            strcpy(file_username, token);
+        }
+
+        // Get password
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            strcpy(file_password, token);
+        }
+
+        // Get account balance
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            file_account_balance = atof(token);
+        }
+
+        // Check if the username matches
+        if (strcmp(file_username, username) == 0) {
+            fclose(db_file);
+            return file_account_balance;
+        }
+    }
+
+    fclose(db_file);
+    return 0.0;
+}
+void deposit_amount(const char *username, double amount) {
+    double current_balance = get_customer_balance(username);
+    double new_balance = current_balance + amount;
+    save_updated_customer_balance(username, new_balance);
+}
+
+void save_updated_customer_balance(const char *username, double new_balance) {
+    FILE *db_file = fopen(DB_FILE, "r+");
+    if (!db_file) {
+        perror("Unable to open customer database file");
+        return;
+    }
+
+    char line[BUFFER_SIZE];
+    long int pos;
+
+    while ((pos = ftell(db_file)) != -1 && fgets(line, sizeof(line), db_file)) {
+        char *token;
+        char file_customer_id[20];
+        char file_username[50];
+        char file_password[50];
+
+        // Get customer ID
+        token = strtok(line, ",");
+        if (token != NULL) {
+            strcpy(file_customer_id, token);
+        }
+
+        // Get username
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            strcpy(file_username, token);
+        }
+
+        // Get password
+        token = strtok(NULL, ",");
+        if (token != NULL) {
+            strcpy(file_password, token);
+        }
+
+        // Check if the username matches
+        if (strcmp(file_username, username) == 0) {
+            fseek(db_file, pos, SEEK_SET); // Go back to the start of the line
+            fprintf(db_file, "%s,%s,%s,%.2f\n", file_customer_id, file_username, file_password, new_balance);
+            break;
+        }
+    }
+
+    fclose(db_file);
+}
+void withdraw_amount(const char *username, double amount) {
+    FILE *file = fopen("database.txt", "r"); // Open for reading
+    if (!file) {
+        perror("Failed to open database");
+        return;
+    }
+
+    FILE *temp_file = fopen("temp.txt", "w"); // Create a temporary file
+    if (!temp_file) {
+        perror("Failed to open temporary file");
+        fclose(file);
+        return;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), file)) {
+        char db_username[50];
+        double db_balance;
+
+        // Parse the database line
+        sscanf(line, "%[^,],%lf", db_username, &db_balance);
+        if (strcmp(db_username, username) == 0) {
+            db_balance -= amount; // Deduct the amount
+            // Ensure balance does not go below 100 (already checked before calling this function)
+            fprintf(temp_file, "%s,%.2f\n", db_username, db_balance); // Write new balance to temp file
+        } else {
+            fprintf(temp_file, "%s", line); // Write unchanged line
+        }
+    }
+
+    fclose(file);
+    fclose(temp_file);
+
+    // Replace the original database file with the updated one
+    remove("database.txt");
+    rename("temp.txt", "database.txt");
+}
 // Customer menu implementation
 void customer_menu(int client_socket) {
     char buffer[BUFFER_SIZE];
@@ -447,14 +590,41 @@ void customer_menu(int client_socket) {
                 send(client_socket, "Old password is incorrect.\n", BUFFER_SIZE, 0);
             }
             break;
-        case 3: // View Account Balance
-                // Placeholder for implementation
+            case 3: // View Account Balance
+                double balance = get_customer_balance(logged_in_username);
+                sprintf(buffer, "Your account balance is: %.2f\n", balance);
+                send(client_socket, buffer, BUFFER_SIZE, 0);
                 break;
             case 4: // Deposit Money
-                // Placeholder for implementation
+		send(client_socket, "Enter the amount to deposit: ", BUFFER_SIZE, 0);
+                recv(client_socket, buffer, sizeof(buffer), 0);
+                double deposit = atof(buffer);
+
+                if (deposit <= 0) {
+                    send(client_socket, "Invalid deposit amount. Please enter a positive value.\n", BUFFER_SIZE, 0);
+                } else {
+                    deposit_amount(logged_in_username, deposit);
+                    sprintf(buffer, "Amount deposited successfully! Your new balance is: %.2f\n", get_customer_balance(logged_in_username));
+                    send(client_socket, buffer, BUFFER_SIZE, 0);
+                }
                 break;
             case 5: // Withdraw Money
-                // Placeholder for implementation
+                send(client_socket, "Enter the amount to withdraw: ", BUFFER_SIZE, 0);
+                recv(client_socket, buffer, sizeof(buffer), 0);
+                double withdraw = atof(buffer);
+
+                if (withdraw <= 0) {
+                    send(client_socket, "Invalid withdrawal amount. Please enter a positive value.\n", BUFFER_SIZE, 0);
+                } else {
+                    double current_balance = get_customer_balance(logged_in_username);
+                    if (current_balance - withdraw < 100) {
+                        send(client_socket, "Withdrawal denied. Minimum balance of 100 must be maintained.\n", BUFFER_SIZE, 0);
+                    } else {
+                        withdraw_amount(logged_in_username, withdraw);
+                        sprintf(buffer, "Amount withdrawn successfully! Your new balance is: %.2f\n", get_customer_balance(logged_in_username));
+                        send(client_socket, buffer, BUFFER_SIZE, 0);
+                    }
+                }
                 break;
             case 6: // Transfer Funds
                 // Placeholder for implementation
@@ -468,10 +638,10 @@ void customer_menu(int client_socket) {
             case 9: // Provide Feedback
                 // Placeholder for implementation
                 break;
-            case 10: // Logout
+            /*case 10: // Logout
                 send(client_socket, "Logging out...\n", BUFFER_SIZE, 0);
                 logged_in = 0;
-                return;
+                return;*/
             case 11: // Exit
                 send(client_socket, "Exiting...\n", BUFFER_SIZE, 0);
                 close(client_socket); // Close the socket and exit
