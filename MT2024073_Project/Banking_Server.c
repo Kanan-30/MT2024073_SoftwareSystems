@@ -3,11 +3,18 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-
+#include <time.h>
 #define PORT 5080
 #define MAX_CLIENTS 10
 #define BUFFER_SIZE 1024
-#define DB_FILE "customer_db.txt"
+#define CUSTOMER_DB "customer_db.txt"
+#define EMPLOYEE_DB "employee_db.txt"
+#define MANAGER_DB "manager_db.txt"
+#define ADMIN_DB "admin_db.txt"
+#define BUFFER_SIZE 1024
+
+
+char logged_in_username[50];  // Global variable to track logged-in user
 
 // Function prototypes
 void handle_client(int client_socket);
@@ -15,6 +22,10 @@ void customer_menu(int client_socket);
 void employee_menu(int client_socket);
 void manager_menu(int client_socket);
 void admin_menu(int client_socket);
+void save_customer_to_file(const char *username, const char *password, int amount);
+int login_user(int client_socket, const char *role_file, const char *role);
+int create_new_account(int client_socket, const char *role_file, const char *role);
+void generate_customer_id(char *customer_id);
 
 int main() {
     int server_socket, client_socket;
@@ -85,16 +96,24 @@ void handle_client(int client_socket) {
 
     switch (user_type) {
         case 1:
-            customer_menu(client_socket);
+            if (login_user(client_socket, CUSTOMER_DB, "Customer")) {
+                customer_menu(client_socket);
+            }
             break;
         case 2:
-            employee_menu(client_socket);
+            if (login_user(client_socket, EMPLOYEE_DB, "Employee")) {
+                employee_menu(client_socket);
+            }
             break;
         case 3:
-            manager_menu(client_socket);
+            if (login_user(client_socket, MANAGER_DB, "Manager")) {
+                manager_menu(client_socket);
+            }
             break;
         case 4:
-            admin_menu(client_socket);
+            if (login_user(client_socket, ADMIN_DB, "Admin")) {
+                admin_menu(client_socket);
+            }
             break;
         default:
             send(client_socket, "Invalid User Type!", BUFFER_SIZE, 0);
@@ -102,23 +121,123 @@ void handle_client(int client_socket) {
     }
 }
 
+// Function to trim newline and spaces from the buffer
+void trim_newline(char *str) {
+    int len = strlen(str);
+    if (len > 0 && str[len-1] == '\n') {
+        str[len-1] = '\0';  // Remove newline character
+    }
+}
+
+// Function to login user from a file
+int login_user(int client_socket, const char *role_file, const char *role) {
+    char buffer[BUFFER_SIZE], username[50], password[50], file_username[50], file_password[50];
+    char line[BUFFER_SIZE];
+    FILE *file;
+
+    // Ask for username
+    send(client_socket, "Enter Username: ", BUFFER_SIZE, 0);
+    recv(client_socket, username, sizeof(username), 0);
+    trim_newline(username);  // Clean input
+
+    // Open the role file (e.g., customer, employee file)
+    file = fopen(role_file, "r");
+    if (file == NULL) {
+        perror("Error opening file");
+        return 0;
+    }
+
+    int found = 0;
+    // Read each line and check if the username exists
+    while (fgets(line, sizeof(line), file)) {
+        sscanf(line, "%s %s", file_username, file_password);  // Split line into username and password
+        if (strcmp(file_username, username) == 0) {
+            found = 1;  // Username found
+            break;
+        }
+    }
+    fclose(file);
+
+    if (found) {
+        // Ask for password if username exists
+        send(client_socket, "Enter Password: ", BUFFER_SIZE, 0);
+        recv(client_socket, password, sizeof(password), 0);
+        trim_newline(password);  // Clean input
+
+        if (strcmp(file_password, password) == 0) {
+            send(client_socket, "Login successful!\n", BUFFER_SIZE, 0);
+            strcpy(logged_in_username, username);
+            return 1;  // Successful login
+        } else {
+            send(client_socket, "Login failed! Incorrect password.\n", BUFFER_SIZE, 0);
+            return 0;  // Password mismatch
+        }
+    } else {
+        // If username not found, prompt to create a new account
+        send(client_socket, "Username not found! Create a new account? (yes/no): ", BUFFER_SIZE, 0);
+        recv(client_socket, buffer, sizeof(buffer), 0);
+        trim_newline(buffer);  // Clean input
+
+        if (strcmp(buffer, "yes") == 0) {
+            return create_new_account(client_socket, role_file, role);  // Create account if yes
+        } else {
+            send(client_socket, "Login cancelled.\n", BUFFER_SIZE, 0);
+            return 0;  // Cancel if no
+        }
+    }
+}
+
+// Function to create a new account
+int create_new_account(int client_socket, const char *role_file, const char *role) {
+    char username[50], password[50];
+    FILE *file = fopen(role_file, "a");  // Open file in append mode
+
+    if (file == NULL) {
+        perror("Error opening file");
+        return 0;
+    }
+
+    // Get the new username and password
+    send(client_socket, "Enter new Username: ", BUFFER_SIZE, 0);
+    recv(client_socket, username, sizeof(username), 0);
+    trim_newline(username);  // Clean input
+
+    send(client_socket, "Enter new Password: ", BUFFER_SIZE, 0);
+    recv(client_socket, password, sizeof(password), 0);
+    trim_newline(password);  // Clean input
+
+    // Save the new user to the file (username password)
+    fprintf(file, "%s %s\n", username, password);
+    fclose(file);
+
+    send(client_socket, "Account created successfully!\n", BUFFER_SIZE, 0);
+    return 1;
+}
+void generate_customer_id(char *customer_id) {
+    srand(time(NULL));
+    sprintf(customer_id, "CUST%05d", rand() % 100000);
+}
+
 void customer_menu(int client_socket) {
     int choice;
     char buffer[BUFFER_SIZE];
 
+    // Login or register the customer before presenting menu options
+  //  customer_login(client_socket);
+
     do {
         sprintf(buffer, "\nCustomer Menu:\n"
-                        "1. Login System\n"
-                        "2. Change Password\n"
-                        "3. View Account Balance\n"
-                        "4. Deposit Money\n"
-                        "5. Withdraw Money\n"
-                        "6. Transfer Funds\n"
-                        "7. Apply for a loan\n"
-                        "8. View Transaction History\n"
-                        "9. Provide Feedback\n"
-                        "10. Logout\n"
-                        "11. Exit\n"
+                        "1. Change Password\n"
+                        "2. View Account Balance\n"
+                        "3. Deposit Money\n"
+                        "4. Withdraw Money\n"
+                        "5. Transfer Funds\n"
+                        "6. Apply for a loan\n"
+                        "7. View Transaction History\n"
+                        "8. Provide Feedback\n"
+                        " ____Enter logout to logout____\n"
+			" ____Enter exit to exit    ____\n"
+
                         "Enter your choice: ");
 
         send(client_socket, buffer, BUFFER_SIZE, 0);
@@ -126,48 +245,38 @@ void customer_menu(int client_socket) {
         choice = atoi(buffer);
 
         switch (choice) {
-            case 1:
-                // Customer Login Placeholder
-                break;
-            case 2: // Change Password
+            case 1: // Change Password
                 // Placeholder for implementation
                 break;
-            case 3: // View Account Balance
+            case 2: // View Account Balance
                 // Placeholder for implementation
                 break;
-            case 4: // Deposit Money
+            case 3: // Deposit Money
                 // Placeholder for implementation
                 break;
-            case 5: // Withdraw Money
+            case 4: // Withdraw Money
                 // Placeholder for implementation
                 break;
-            case 6: // Transfer Funds
+            case 5: // Transfer Funds
                 // Placeholder for implementation
                 break;
-            case 7: // Apply for a loan
+            case 6: // Apply for a loan
                 // Placeholder for implementation
                 break;
-            case 8: // View Transaction History
+            case 7: // View Transaction History
                 // Placeholder for implementation
                 break;
-            case 9: // Provide Feedback
+            case 8: // Provide Feedback
                 // Placeholder for implementation
                 break;
-            case 10: // Logout
-                send(client_socket, "Logging out...\n", BUFFER_SIZE, 0);
-                return;
-            case 11: // Exit
-                send(client_socket, "Exiting...\n", BUFFER_SIZE, 0);
-                close(client_socket); // Close the socket and exit
-                exit(0); // Terminate the child process
-                break;
+          
             default:
                 send(client_socket, "Invalid choice!\n", BUFFER_SIZE, 0);
                 break;
         }
-    } while (choice != 10 && choice != 11);
+    } while (choice != 9 && choice != 10);
 }
-
+            
 void employee_menu(int client_socket) {
     int choice;
     char buffer[BUFFER_SIZE];
@@ -181,8 +290,9 @@ void employee_menu(int client_socket) {
                         "5. View Assigned Loan Applications\n"
                         "6. Approve/Reject Loans\n"
                         "7. View Customer Transactions\n"
-                        "8. Logout\n"
-                        "9. Exit\n"
+                        " ____Enter logout to logout____\n"
+                        " ____Enter exit to exit    ____\n"
+
                         "Enter your choice: ");
 
         send(client_socket, buffer, BUFFER_SIZE, 0);
@@ -211,19 +321,11 @@ void employee_menu(int client_socket) {
             case 7: // View Customer Transactions
                 // Placeholder for implementation
                 break;
-            case 8: // Logout
-                send(client_socket, "Logging out...\n", BUFFER_SIZE, 0);
-                return;
-            case 9: // Exit
-                send(client_socket, "Exiting...\n", BUFFER_SIZE, 0);
-                close(client_socket); // Close the socket and exit
-                exit(0); // Terminate the child process
-                break;
             default:
                 send(client_socket, "Invalid choice!\n", BUFFER_SIZE, 0);
                 break;
         }
-    } while (choice != 8 && choice != 9);
+    } while (choice !=8 && choice != 9);
 }
 
 void manager_menu(int client_socket) {
@@ -237,8 +339,9 @@ void manager_menu(int client_socket) {
                         "3. Assign Loan Applications to Employees\n"
                         "4. Review Customer Feedback\n"
                         "5. Change Password\n"
-                        "6. Logout\n"
-                        "7. Exit\n"
+                        " ____Enter logout to logout____\n"
+                        " ____Enter exit to exit    ____\n"
+
                         "Enter your choice: ");
 
         send(client_socket, buffer, BUFFER_SIZE, 0);
@@ -261,13 +364,6 @@ void manager_menu(int client_socket) {
             case 5:
                 // Placeholder for Change Password
                 break;
-            case 6:  // Logout
-                send(client_socket, "Logging out...\n", BUFFER_SIZE, 0);
-                return;  // Return to the main driver menu (do NOT close the connection)
-            case 7:  // Exit
-                send(client_socket, "Exiting...\n", BUFFER_SIZE, 0);
-                close(client_socket);  // Close the socket and terminate the session
-                exit(0);  // Terminate the child process
             default:
                 send(client_socket, "Invalid choice!\n", BUFFER_SIZE, 0);
                 break;
@@ -285,8 +381,9 @@ void admin_menu(int client_socket) {
                         "2. Add New Bank Employee\n"
                         "3. Modify Customer Details\n"
                         "4. Modify Employee Details\n"
-                        "5. Logout\n"
-                        "6. Exit\n"
+                        " ____Enter logout to logout____\n"
+                        " ____Enter exit to exit    ____\n"
+
                         "Enter your choice: ");
 
         send(client_socket, buffer, BUFFER_SIZE, 0);
@@ -306,13 +403,6 @@ void admin_menu(int client_socket) {
             case 4:
                 // Placeholder for Modify Employee Details
                 break;
-            case 5:  // Logout
-                send(client_socket, "Logging out...\n", BUFFER_SIZE, 0);
-                return;  // Return to the main driver menu (do NOT close the connection)
-            case 6:  // Exit
-                send(client_socket, "Exiting...\n", BUFFER_SIZE, 0);
-                close(client_socket);  // Close the socket and terminate the session
-                exit(0);  // Terminate the child process
             default:
                 send(client_socket, "Invalid choice!\n", BUFFER_SIZE, 0);
                 break;

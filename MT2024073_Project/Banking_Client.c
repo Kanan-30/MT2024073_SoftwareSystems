@@ -59,13 +59,13 @@ int main() {
                 choice = atoi(buffer);  // Convert user input to integer
 
                 // Check if the choice is Logout or Exit
-                if (choice == 10 || choice == 8 || choice == 5 || choice == 4) {  // Logout for different menus
+                if (strstr(buffer,"logout")!=NULL) {  // Logout for customer, employee, etc.
                     printf("Logging out...\n");
                     logged_out = 1;
                     break;  // Break from the role-specific menu loop, but remain in the outer loop for role selection
                 }
 
-                if (choice == 11 || choice == 9 || choice == 6 || choice == 5) {  // Exit for different menus
+                if (strstr(buffer,"exit")!=NULL) {  // Exit for customer, employee, etc.
                     printf("Exiting client...\n");
                     close(sock);  // Close the socket and exit
                     return 0;  // Terminate the client program
