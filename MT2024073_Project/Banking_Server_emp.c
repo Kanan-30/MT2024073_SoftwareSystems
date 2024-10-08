@@ -25,6 +25,7 @@ typedef struct {
 char logged_in_username[50];       // Global variable to track logged-in user
 int logged_in_cust_id = -1;        // Global variable to track logged-in customer's ID
 double logged_in_amount = 0.0;     // Global variable to track logged-in customer's amount
+char logged_in_emp_id[20]; 
 
 // Function prototypes
 void handle_client(int client_socket);
@@ -44,7 +45,7 @@ int change_password(int client_socket);
 int update_customer_password(int cust_id, const char* new_password);
 int get_next_loan_id();
 int apply_for_loan(int client_socket);
-
+int get_next_employee_id();
 // Main function
 int main() {
     int server_socket, client_socket;
@@ -390,7 +391,7 @@ int get_next_loan_id() {
 // Function to login user from a file
 int login_user(int client_socket, const char *role_file, const char *role) {
     char buffer[BUFFER_SIZE], username[50], password[50], file_username[50], file_password[50];
-    char line[BUFFER_SIZE];
+    char line[BUFFER_SIZE], emp_id[20], current_emp_id[20];
     int file_fd;
 
     memset(buffer, 0, BUFFER_SIZE);        // Clear the buffer
@@ -430,10 +431,10 @@ int login_user(int client_socket, const char *role_file, const char *role) {
             int parsed = sscanf(line, "%s %s %s %lf", current_cust_id_str, file_username, file_password, &current_amount);
             if (parsed < 4) continue; // Invalid line format
             current_cust_id = atoi(current_cust_id_str);
-        } else {
-            // For other roles, lines are: username password
-            int parsed = sscanf(line, "%s %s", file_username, file_password);
-            if (parsed < 2) continue; // Invalid line format
+        } else if (strcmp(role, "Employee") == 0) {
+            // For employees, lines are: emp_id username password
+            int parsed = sscanf(line, "%s %s %s", current_emp_id, file_username, file_password);
+            if (parsed < 3) continue; // Invalid line format
         }
 
         if (strcmp(file_username, username) == 0) {
@@ -456,6 +457,9 @@ int login_user(int client_socket, const char *role_file, const char *role) {
                 // For customers, store cust_id and amount
                 logged_in_cust_id = current_cust_id;
                 logged_in_amount = current_amount;
+            } else if (strcmp(role, "Employee") == 0) {
+                // For employees, store emp_id
+                strcpy(logged_in_emp_id, current_emp_id);
             }
             strcpy(logged_in_username, username);
             return 1; // Successful login
@@ -477,14 +481,13 @@ int login_user(int client_socket, const char *role_file, const char *role) {
         }
     }
 }
-
 // Function to create a new account
 int create_new_account(int client_socket, const char *role_file, const char *role) {
     char username[50], password[50];
     int file_fd;
-
+     char emp_id[20];  
     if (strcmp(role, "Customer") == 0) {
-        // For customers, open file in append mode
+        // Customer creation logic remains the same
         file_fd = open(role_file, O_WRONLY | O_APPEND | O_CREAT, 0644);
         if (file_fd < 0) {
             perror("Error opening customer file");
@@ -526,11 +529,11 @@ int create_new_account(int client_socket, const char *role_file, const char *rol
         snprintf(success_msg, sizeof(success_msg), "Account created successfully! Your Customer ID is %d.\n", cust_id);
         send(client_socket, success_msg, strlen(success_msg), 0);
         return 1;
-    } else {
-        // For other roles, similar to existing behavior
+    } else if (strcmp(role, "Employee") == 0) {
+        // Employee creation logic
         file_fd = open(role_file, O_WRONLY | O_APPEND | O_CREAT, 0644);
         if (file_fd < 0) {
-            perror("Error opening file");
+            perror("Error opening employee file");
             send(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"), 0);
             return 0;
         }
@@ -555,14 +558,26 @@ int create_new_account(int client_socket, const char *role_file, const char *rol
         recv(client_socket, password, sizeof(password), 0);
         trim_newline(password); // Clean input
 
-        // Save the new user to the file (username password)
-        fprintf(file, "%s %s\n", username, password);
+        // Generate a new employee ID
+        int emp_id_num = get_next_employee_id();
+        snprintf(emp_id, sizeof(emp_id), "emp_%d", emp_id_num);
+
+        // Save the new employee to the file (emp_id username password)
+        fprintf(file, "%s %s %s\n", emp_id, username, password);
         fclose(file); // This also closes file_fd
 
-        send(client_socket, "Account created successfully!\n", strlen("Account created successfully!\n"), 0);
+        char success_msg[BUFFER_SIZE];
+        snprintf(success_msg, sizeof(success_msg), "Account created successfully! Your Employee ID is %s.\n", emp_id);
+        send(client_socket, success_msg, strlen(success_msg), 0);
         return 1;
     }
+    return 0;
 }
+int get_next_employee_id() {
+    static int emp_id_counter = 1; // Simple counter, could be loaded from a file if persistence is needed
+    return emp_id_counter++;
+}
+
 
 // Function to transfer funds from one customer to another
 int transfer_funds(int client_socket) {
@@ -668,37 +683,26 @@ int change_password(int client_socket) {
         return 0;
     }
 }
-/*void trim_newline(char *str) {
-    int len = strlen(str);
-    if (len > 0 && str[len - 1] == '\n') {
-        str[len - 1] = '\0';
-    }
-}*/
-
-// Function to apply for a loan
 int apply_for_loan(int client_socket) {
     char buffer[BUFFER_SIZE], loan_amount[20];
-    int cust_id, file, loan_id = 1;
+    int cust_id, loan_id;
     char line[BUFFER_SIZE];
     char file_username[50], file_password[50];
     float balance;
-    char loans[BUFFER_SIZE] = "";
-    char updated_loans[BUFFER_SIZE] = "";
 
     // Prompt the customer for their ID
     send(client_socket, "Enter your customer ID: ", strlen("Enter your customer ID: "), 0);
     recv(client_socket, buffer, BUFFER_SIZE, 0);
     cust_id = atoi(buffer);
 
-    // Open customer_db file
-    file = open(CUSTOMER_DB, O_RDWR);
+    // Open customer_db file to verify customer
+    int file = open(CUSTOMER_DB, O_RDWR);
     if (file < 0) {
         perror("Error opening customer database");
         return 0;
     }
 
     int found = 0;
-    off_t pos;
     FILE *file_stream = fdopen(file, "r+");  // Open file as stream for easier line-by-line reading
     if (file_stream == NULL) {
         perror("Error reading file stream");
@@ -708,9 +712,8 @@ int apply_for_loan(int client_socket) {
 
     // Search for the customer in the file
     while (fgets(line, sizeof(line), file_stream) != NULL) {
-        pos = ftell(file_stream);  // Save the current position for potential update
         int temp_cust_id;
-        sscanf(line, "%d %s %s %f %[^\n]", &temp_cust_id, file_username, file_password, &balance, loans);
+        sscanf(line, "%d %s %s %f", &temp_cust_id, file_username, file_password, &balance);
         if (temp_cust_id == cust_id) {
             found = 1;
             break;
@@ -729,38 +732,31 @@ int apply_for_loan(int client_socket) {
     trim_newline(loan_amount);  // Clean input
     float loan_amt = atof(loan_amount);
 
-    // Determine the next loan_id by counting existing loans
-    if (strlen(loans) > 0) {
-        char *loan_ptr = strtok(loans, ",");
-        while (loan_ptr != NULL) {
-            loan_ptr = strtok(NULL, ",");
-            loan_id++;
-        }
+    // Get the next loan ID from loan_db
+    loan_id = get_next_loan_id();
+
+    // Open loan_db to append the new loan
+    FILE *loan_db_file = fopen(LOAN_DB, "a");
+    if (!loan_db_file) {
+        perror("Error opening loan database");
+        fclose(file_stream);
+        return 0;
     }
 
-    // Construct the new loan entry (loan_id:amount)
-    char new_loan[BUFFER_SIZE];
-    snprintf(new_loan, sizeof(new_loan), "loan_%d:%.2f", loan_id, loan_amt);
+    // Construct the loan record (loan_id, cust_id, loan_amount)
+    snprintf(buffer, sizeof(buffer), "loan_%d %d %.2f\n", loan_id, cust_id, loan_amt);
 
-    // Append new loan to the existing loans or create a new loans entry
-    if (strlen(loans) > 0) {
-        snprintf(updated_loans, sizeof(updated_loans), "%s,%s", loans, new_loan);
-    } else {
-        snprintf(updated_loans, sizeof(updated_loans), "%s", new_loan);
-    }
+    // Write the loan record to the loan_db file
+    fputs(buffer, loan_db_file);
+    fclose(loan_db_file);
 
-    // Move the file pointer back to the beginning of the customer record
-    fseek(file_stream, pos - strlen(line), SEEK_SET);
-
-    // Update the customer record in the file
-    snprintf(buffer, sizeof(buffer), "%d %s %s %.2f %s\n", cust_id, file_username, file_password, balance, updated_loans);
-    fputs(buffer, file_stream);
-
+    // Notify the customer that the loan was applied successfully
     send(client_socket, "Loan applied successfully!\n", strlen("Loan applied successfully!\n"), 0);
 
     fclose(file_stream);
     return 1;
 }
+
 
 // Function to implement the customer menu
 void customer_menu(int client_socket) {
@@ -874,22 +870,75 @@ void customer_menu(int client_socket) {
         }
     } while (choice != 7);
 }
-
 // Function to implement employee menu
-void employee_menu(int client_socket) {
+void manager_menu(int client_socket) {
     // Implement employee menu
     send(client_socket, "Employee Menu is not implemented yet.\n", strlen("Employee Menu is not implemented yet.\n"), 0);
 }
 
 // Function to implement manager menu
-void manager_menu(int client_socket) {
+void employee_menu(int client_socket) {
     // Implement manager menu
-    send(client_socket, "Manager Menu is not implemented yet.\n", strlen("Manager Menu is not implemented yet.\n"), 0);
+    int choice;
+    char buffer[BUFFER_SIZE];
+    do {
+        sprintf(buffer, "\nEmployee Menu:\n"
+                        "1. Login System\n"
+                        "2. Change Password\n"
+                        "3. Assign Customer to Yourself\n"
+                        "4. Process Loan Applications\n"
+                        "5. View Assigned Loan Applications\n"
+                        "6. Approve/Reject Loans\n"
+                        "7. View Customer Transactions\n"
+                        "8. Logout\n"
+                        "9. Exit\n"
+                        "Enter your choice: ");
+        
+        send(client_socket, buffer, BUFFER_SIZE, 0);
+        recv(client_socket, buffer, BUFFER_SIZE, 0);
+        choice = atoi(buffer);
+        switch (choice) {
+            case 1: // Implement Login System
+                // Placeholder for implementation
+                break;
+            case 2: // Change Password
+                // Placeholder for implementation
+                break;
+            case 3: // Add New Customer
+                if (assign_customer_to_employee(client_socket, "customer_db.txt", "employee_db.txt") == 0) {
+                send(client_socket, "Failed to assign customer.\n", strlen("Failed to assign customer.\n"), 0);
+		}
+                break;
+            case 4: // Process Loan Applications
+                // Placeholder for implementation
+                break;
+            case 5: // View Assigned Loan Applications
+                // Placeholder for implementation
+                break;
+            case 6: // Approve/Reject Loans
+                // Placeholder for implementation
+                break;
+            case 7: // View Customer Transactions
+                // Placeholder for implementation
+                break;
+            case 8: // Logout
+                send(client_socket, "Logging out...\n", BUFFER_SIZE, 0);
+                return;
+            case 9: // Exit
+                send(client_socket, "Exiting...\n", BUFFER_SIZE, 0);
+                close(client_socket); // Close the socket and exit
+                pthread_exit(NULL); // Terminate the thread
+                break;
+            default:
+                send(client_socket, "Invalid choice!\n", BUFFER_SIZE, 0);
+                break;
+        }
+    } while (choice != 8 && choice != 9);
 }
+
 
 // Function to implement admin menu
 void admin_menu(int client_socket) {
     // Implement admin menu
     send(client_socket, "Admin Menu is not implemented yet.\n", strlen("Admin Menu is not implemented yet.\n"), 0);
 }
-
