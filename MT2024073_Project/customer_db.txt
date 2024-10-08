@@ -1,2 +1,1 @@
-
-kanan kanan
+1 kanan kanan 0.00 loan_1:100.00,loan_2:500.00
