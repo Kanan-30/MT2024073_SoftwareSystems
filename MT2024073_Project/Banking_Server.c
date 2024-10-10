@@ -4,7 +4,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
-#include <sys/file.h>  // For flock
+#include <sys/file.h> 
+#include <time.h>
 
 #define PORT 5080
 #define MAX_CLIENTS 10
@@ -26,15 +27,15 @@ typedef struct {
 } Customer;
 
 typedef struct {
-    char emp_id[10];     // Employee ID in the format emp_<number>
+    char emp_id[10];     
     char username[50];
     char password[50];
 } Employee;
 
 
-char logged_in_username[50];       // Global variable to track logged-in user
-int logged_in_cust_id = -1;        // Global variable to track logged-in customer's ID
-double logged_in_amount = 000.00;     // Global variable to track logged-in customer's amount
+char logged_in_username[50];       
+int logged_in_cust_id = -1;        
+double logged_in_amount = 000.00;   
 char logged_in_emp_id[10] = ""; 
 
 // Function prototypes
@@ -63,8 +64,11 @@ int check_loan_status(int client_socket, int customer_id);
 int change_customer_password(int client_socket);
 int change_employee_password(int client_socket);
 int update_employee_password(const char* emp_id, const char* new_password);
-void give_feedback(int client_socket);
-void view_feedback(int client_socket);
+void give_feedback_to_employee(int client_socket, const char *employee_db, const char *feedback_file);
+void view_employee_feedback(int client_socket, const char *feedback_file);
+void log_transaction(int cust_id, const char *transaction_type, double amount);
+void view_transaction_history(int client_socket, int cust_id) ;
+void view_customer_transaction_history(int client_socket, int cust_id) ;
 
 // Main function
 int main() {
@@ -313,158 +317,6 @@ int update_customer_amount(int cust_id, double new_amount) {
 
     return updated;
 }
-
-// Function to update customer's password in the database
-/*int update_customer_password(int cust_id, const char* new_password) {
-    FILE *file = fopen(CUSTOMER_DB, "r");
-    if (!file) {
-        perror("Error opening customer database for reading");
-        return 0;
-    }
-
-    // Open a temporary file for writing
-    FILE *temp = fopen("customer_db.tmp", "w");
-    if (!temp) {
-        perror("Error opening temporary file for writing");
-        fclose(file);
-        return 0;
-    }
-
-    // Lock the original file for reading
-    if (flock(fileno(file), LOCK_SH) < 0) {
-        perror("Error locking the original file");
-        fclose(file);
-        fclose(temp);
-        return 0;
-    }
-
-    char line[BUFFER_SIZE];
-    int updated = 0;
-
-    while (fgets(line, sizeof(line), file)) {
-        int current_id;
-        char username[50], password[50];
-        double amount;
-
-        int parsed = sscanf(line, "%d %s %s %lf", &current_id, username, password, &amount);
-        if (parsed < 4) {
-            // Write the line as is if format is invalid
-            fputs(line, temp);
-            continue;
-        }
-
-        if (current_id == cust_id) {
-            // Replace the password
-            fprintf(temp, "%d %s %s %.2lf\n", current_id, username, new_password, amount);
-            updated = 1;
-        } else {
-            // Write the line as is
-            fputs(line, temp);
-        }
-    }
-
-    // Unlock and close the original file
-    flock(fileno(file), LOCK_UN);
-    fclose(file);
-
-    // Close the temporary file
-    fclose(temp);
-
-    if (!updated) {
-        // Remove the temporary file if no update was done
-        remove("customer_db.tmp");
-        return 0;
-    }
-
-    // Replace the original file with the temporary file
-    if (rename("customer_db.tmp", CUSTOMER_DB) != 0) {
-        perror("Error renaming temporary file");
-        return 0;
-    }
-
-    return 1;
-}
-*/
-/*int update_customer_password(int cust_id, const char *new_password) {
-    FILE *file = fopen(CUSTOMER_DB, "r");
-    if (!file) {
-        perror("Error opening customer database for reading");
-        return 0;
-    }
-
-    // Open a temporary file for writing
-    FILE *temp = fopen("customer_db.tmp", "w");
-    if (!temp) {
-        perror("Error opening temporary file for writing");
-        fclose(file);
-        return 0;
-    }
-
-    // Lock the original file for reading
-    if (flock(fileno(file), LOCK_SH) < 0) {
-        perror("Error locking the original file");
-        fclose(file);
-        fclose(temp);
-        return 0;
-    }
-
-    char line[BUFFER_SIZE];
-    int updated = 0;
-
-    // Process each line in the original file
-    while (fgets(line, sizeof(line), file)) {
-        int current_id;
-        char username[50], password[50];
-        double amount;
-
-        // Attempt to parse the line
-        int parsed = sscanf(line, "%d %s %s %lf", &current_id, username, password, &amount);
-        if (parsed < 3) {
-            // If the format is invalid, write the line as is
-            fputs(line, temp);
-            continue; // Skip this line if it's not valid
-        }
-
-        // Check if we found the customer to update
-        if (current_id == cust_id) {
-            // Replace the password and write the updated line
-            if (parsed == 4) {
-                // If the line has an amount, we include it
-                fprintf(temp, "%d %s %s %.2lf\n", current_id, username, new_password, amount);
-            } else {
-                // If no amount is present, write without it (this handles the case of missing amount)
-                fprintf(temp, "%d %s %s\n", current_id, username, new_password);
-            }
-            updated = 1;  // Mark that an update has occurred
-        } else {
-            // If not the customer, write the line as is
-            fputs(line, temp);
-        }
-    }
-
-    // Unlock and close the original file
-    flock(fileno(file), LOCK_UN);
-    fclose(file);
-
-    // Close the temporary file
-    fclose(temp);
-
-    // If no update was made, remove the temporary file
-    if (!updated) {
-        remove("customer_db.tmp");
-        return 0;  // Indicate that no update was performed
-    }
-
-    // Replace the original file with the temporary file
-    if (rename("customer_db.tmp", CUSTOMER_DB) != 0) {
-        perror("Error renaming temporary file");
-        return 0;  // Return failure if renaming fails
-    }
-
-    return 1;  // Return success
-}*/
-
-
 // Function to get the next loan ID in the format loan_1, loan_2, etc.
 
 int get_next_loan_id() {
@@ -678,8 +530,6 @@ int create_new_account(int client_socket, const char *role_file, const char *rol
     }
 }
 
-
-// Function to transfer funds from one customer to another
 int transfer_funds(int client_socket) {
     char buffer[BUFFER_SIZE];
     int target_cust_id;
@@ -755,35 +605,50 @@ int transfer_funds(int client_socket) {
     }
 
     send(client_socket, "Transfer successful!\n", strlen("Transfer successful!\n"), 0);
+
+    // Log the transfer transaction for both sender and receiver
+    log_transaction(logged_in_cust_id, "transfer_sent", transfer_amount);
+    log_transaction(target_cust_id, "transfer_received", transfer_amount);
+
     return 1;
 }
-
-// Function to change the password of the logged-in customer
-/*int change_password(int client_socket) {
-    char buffer[BUFFER_SIZE];
-    char new_password[50];
-
-    // Prompt for new password
-    send(client_socket, "Enter your new password: ", strlen("Enter your new password: "), 0);
-    recv(client_socket, new_password, sizeof(new_password), 0);
-    trim_newline(new_password); // Clean input
-
-    // Validate new password
-    if (strlen(new_password) == 0) {
-        send(client_socket, "Password cannot be empty.\n", strlen("Password cannot be empty.\n"), 0);
-        return 0;
+void view_transaction_history(int client_socket, int cust_id) {
+    FILE *file = fopen("transactions_db.txt", "r");
+    if (!file) {
+        perror("Error opening transaction log file");
+        send(client_socket, "Error retrieving transaction history.\n", strlen("Error retrieving transaction history.\n"), 0);
+        return;
     }
 
-    // Update the password in the database
-    if (update_customer_password(logged_in_cust_id, new_password)) {
-        send(client_socket, "Password changed successfully!\n", strlen("Password changed successfully!\n"), 0);
-        return 1;
-    } else {
-        send(client_socket, "Error changing password. Please try again.\n", strlen("Error changing password. Please try again.\n"), 0);
-        return 0;
-    }
-}*/
+    char line[BUFFER_SIZE];
+    char response[BUFFER_SIZE * 10] = "Transaction History:\n";
+    int has_transactions = 0;
 
+    while (fgets(line, sizeof(line), file)) {
+        int current_id;
+        char transaction_type[50];  // Increased size to handle longer transaction types
+        double amount;
+        char timestamp[50];
+
+        // Updated sscanf format string to handle spaces and commas properly
+        sscanf(line, "%d, %49[^,], %lf, %49[^\n]", &current_id, transaction_type, &amount, timestamp);
+
+        if (current_id == cust_id) {
+            has_transactions = 1;
+            char transaction_details[BUFFER_SIZE];
+            snprintf(transaction_details, sizeof(transaction_details), "%s: %.2lf on %s\n", transaction_type, amount, timestamp);
+            strcat(response, transaction_details);
+        }
+    }
+
+    fclose(file);
+
+    if (!has_transactions) {
+        strcat(response, "No transactions found.\n");
+    }
+
+    send(client_socket, response, strlen(response), 0);
+}
 
 int apply_for_loan(int client_socket) {
     char buffer[BUFFER_SIZE], loan_amount[20];
@@ -998,87 +863,104 @@ int change_customer_password(int client_socket) {
         return 0;
     }
 }
+void trim_newline_and_control_chars(char *str) {
+    int len = strlen(str);
+    // Remove trailing newline, carriage return, and other control characters
+    while (len > 0 && (str[len-1] == '\n' || str[len-1] == '\r' || str[len-1] == '\t' || str[len-1] == '\b')) {
+        str[len-1] = '\0';
+        len--;
+    }
+}
 
-void give_feedback(int client_socket) {
-    FILE *emp_file = fopen("employee_db.txt", "r");  // Open the employee database
-    if (!emp_file) {
+// Function for customers to give feedback to employees
+void give_feedback_to_employee(int client_socket, const char *employee_db, const char *feedback_file) {
+    char line[BUFFER_SIZE], emp_id[20], emp_username[50];
+    char selected_emp_id[20], feedback[BUFFER_SIZE];
+    char buffer[BUFFER_SIZE];
+    int file_fd;
+
+    // Open employee_db to display list of employees
+    file_fd = open(employee_db, O_RDONLY);
+    if (file_fd < 0) {
         perror("Error opening employee database");
-        send(client_socket, "Error retrieving employees.\n", strlen("Error retrieving employees.\n"), 0);
+        send(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"), 0);
         return;
     }
 
-    char line[BUFFER_SIZE];
-    char employees[100][50]; // Array to store employee names
-    char emp_ids[100][20];   // Array to store employee IDs
-    int emp_count = 0;
-
-    // Display employees
-    send(client_socket, "Available Employees:\n", strlen("Available Employees:\n"), 0);
-    while (fgets(line, sizeof(line), emp_file)) {
-        char emp_id[20], emp_name[50];
-        sscanf(line, "%s %s", emp_id, emp_name);
-
-        // Store employee IDs and names
-        snprintf(employees[emp_count], sizeof(employees[emp_count]), "%s", emp_name);
-        snprintf(emp_ids[emp_count], sizeof(emp_ids[emp_count]), "%s", emp_id);
-
-        // Correctly format employee info without breaks
-        char emp_info[100];
-        snprintf(emp_info, sizeof(emp_info), "%s: %s\n", emp_id, emp_name);
-        send(client_socket, emp_info, strlen(emp_info), 0);
-        emp_count++;
+    FILE *file = fdopen(file_fd, "r");
+    if (!file) {
+        perror("fdopen failed");
+        close(file_fd);
+        send(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"), 0);
+        return;
     }
-    fclose(emp_file);
 
-    // Ask for which employee to give feedback
-    send(client_socket, "Enter the employee ID to give feedback: ", strlen("Enter the employee ID to give feedback: "), 0);
+    // Step 1: Display the list of employees
+    send(client_socket, "List of employees available for feedback:\n", strlen("List of employees available for feedback:\n"), 0);
 
-    char selected_emp_id[20];
+    while (fgets(line, sizeof(line), file)) {
+        // Assuming employee lines are in the format: emp_id username password
+        int parsed = sscanf(line, "%s %s", emp_id, emp_username);
+        if (parsed < 2) continue; // Invalid line format, skip
+
+        // Send employee info to the customer
+        snprintf(buffer, sizeof(buffer), "Employee ID: %s, Username: %s\n", emp_id, emp_username);
+        send(client_socket, buffer, strlen(buffer), 0);
+    }
+    fclose(file); // Close employee file
+
+    // Step 2: Ask the customer to select an employee for feedback
+    send(client_socket, "Enter the Employee ID you want to give feedback to: ", strlen("Enter the Employee ID you want to give feedback to: "), 0);
     recv(client_socket, selected_emp_id, sizeof(selected_emp_id), 0);
-    trim_newline(selected_emp_id);  // Clean input
+    trim_newline_and_control_chars(selected_emp_id); // Clean input
 
-    // Validate the employee ID entered
-    int emp_index = -1;
-    for (int i = 0; i < emp_count; i++) {
-        if (strcmp(emp_ids[i], selected_emp_id) == 0) {
-            emp_index = i; // Get the index of the selected employee
-            break;
-        }
-    }
-
-    if (emp_index == -1) {
-        send(client_socket, "Error: Invalid employee ID.\n", strlen("Error: Invalid employee ID.\n"), 0);
-        return;
-    }
-
-    // Ask for feedback
+    // Step 3: Ask the customer to provide feedback
     send(client_socket, "Enter your feedback: ", strlen("Enter your feedback: "), 0);
-
-    char feedback[BUFFER_SIZE];
     recv(client_socket, feedback, sizeof(feedback), 0);
-    trim_newline(feedback);  // Clean input
+    trim_newline_and_control_chars(feedback); // Clean input
 
-    // Check if feedback is empty
-    if (strlen(feedback) == 0) {
-        send(client_socket, "Error: Feedback cannot be empty.\n", strlen("Error: Feedback cannot be empty.\n"), 0);
-        return;
-    }
-
-    // Store feedback in the feedback file
-    FILE *feedback_file = fopen(FEEDBACK_FILE, "a");  // Append mode
-    if (!feedback_file) {
+    // Step 4: Store the feedback in the feedback file
+    file_fd = open(feedback_file, O_WRONLY | O_APPEND | O_CREAT, 0644);
+    if (file_fd < 0) {
         perror("Error opening feedback file");
-        send(client_socket, "Error storing feedback.\n", strlen("Error storing feedback.\n"), 0);
+        send(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"), 0);
         return;
     }
 
-    // Correct format: emp_id employee_name: feedback_message
-    fprintf(feedback_file, "%s %s: %s\n", selected_emp_id, employees[emp_index], feedback);
-    fclose(feedback_file);
+    FILE *feedback_fp = fdopen(file_fd, "a");
+    if (!feedback_fp) {
+        perror("fdopen failed");
+        close(file_fd);
+        send(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"), 0);
+        return;
+    }
+
+    // Write feedback to the file (emp_id: feedback)
+    fprintf(feedback_fp, "Employee ID: %s, Feedback: %s\n", selected_emp_id, feedback);
+
+    fclose(feedback_fp); // Close feedback file
 
     send(client_socket, "Feedback submitted successfully!\n", strlen("Feedback submitted successfully!\n"), 0);
 }
 
+void log_transaction(int cust_id, const char *transaction_type, double amount) {
+    FILE *file = fopen("transactions_db.txt", "a");
+    if (!file) {
+        perror("Error opening transaction log file");
+        return;
+    }
+
+    // Get current timestamp
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    char timestamp[20];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", t);
+
+    // Write transaction log entry
+    fprintf(file, "%d, %s, %.2lf, %s\n", cust_id, transaction_type, amount, timestamp);
+
+    fclose(file);
+}
 
 // Function to implement the customer menu
 void customer_menu(int client_socket) {
@@ -1095,7 +977,8 @@ void customer_menu(int client_socket) {
                 "5. Transfer Funds\n"
                 "6. Apply for a Loan\n"
 		"7. Check your loan status \n"
-		"8. Provide Feedback\n"
+		"8. View Transaction History\n"
+		"9. Provide Feedback\n"
                 "Logout\n"
 		"Exit\n"
                 "Enter your choice: ");
@@ -1124,53 +1007,58 @@ void customer_menu(int client_socket) {
                 break;
             case 3:
                 // Deposit Money
-                {
-                    double deposit_amount;
-                    send(client_socket, "Enter amount to deposit: ", strlen("Enter amount to deposit: "), 0);
-                    recv(client_socket, buffer, sizeof(buffer), 0);
-                    deposit_amount = atof(buffer);
-                    if (deposit_amount <= 0) {
-                        send(client_socket, "Invalid deposit amount.\n", strlen("Invalid deposit amount.\n"), 0);
-                    } else {
-                        double current_balance = get_customer_amount(logged_in_cust_id);
-                        if (current_balance < 0) {
-                            send(client_socket, "Error retrieving current balance.\n", strlen("Error retrieving current balance.\n"), 0);
-                        } else {
-                            double new_balance = current_balance + deposit_amount;
-                            if (update_customer_amount(logged_in_cust_id, new_balance)) {
-                                send(client_socket, "Deposit successful!\n", strlen("Deposit successful!\n"), 0);
-                            } else {
-                                send(client_socket, "Error updating account balance.\n", strlen("Error updating account balance.\n"), 0);
-                            }
-                        }
-                    }
-                }
+		{
+        	double deposit_amount;
+        	send(client_socket, "Enter amount to deposit: ", strlen("Enter amount to deposit: "), 0);
+        	recv(client_socket, buffer, sizeof(buffer), 0);
+       	 	deposit_amount = atof(buffer);
+        	if (deposit_amount <= 0) {
+            		send(client_socket, "Invalid deposit amount.\n", strlen("Invalid deposit amount.\n"), 0);
+       		} else {
+            		double current_balance = get_customer_amount(logged_in_cust_id);
+            		if (current_balance < 0) {
+                		send(client_socket, "Error retrieving current balance.\n", strlen("Error retrieving current balance.\n"), 0);
+           		 } else {
+                		double new_balance = current_balance + deposit_amount;
+                		if (update_customer_amount(logged_in_cust_id, new_balance)) {
+                    			send(client_socket, "Deposit successful!\n", strlen("Deposit successful!\n"), 0);
+                    			// Log the deposit transaction
+                    			log_transaction(logged_in_cust_id, "deposit", deposit_amount);
+                		} else {
+                    			send(client_socket, "Error updating account balance.\n", strlen("Error updating account balance.\n"), 0);
+                			}
+            			}
+        		}
+    		}
                 break;
             case 4:
                 // Withdraw Money
-                {
-                    double withdraw_amount;
-                    send(client_socket, "Enter amount to withdraw: ", strlen("Enter amount to withdraw: "), 0);
-                    recv(client_socket, buffer, sizeof(buffer), 0);
-                    withdraw_amount = atof(buffer);
-                    if (withdraw_amount <= 0) {
-                        send(client_socket, "Invalid withdraw amount.\n", strlen("Invalid withdraw amount.\n"), 0);
-                    } else {
-                        double current_balance = get_customer_amount(logged_in_cust_id);
-                        if (current_balance < 0) {
-                            send(client_socket, "Error retrieving current balance.\n", strlen("Error retrieving current balance.\n"), 0);
-                        } else if (withdraw_amount > current_balance) {
-                            send(client_socket, "Insufficient funds.\n", strlen("Insufficient funds.\n"), 0);
-                        } else {
-                            double new_balance = current_balance - withdraw_amount;
-                            if (update_customer_amount(logged_in_cust_id, new_balance)) {
-                                send(client_socket, "Withdrawal successful!\n", strlen("Withdrawal successful!\n"), 0);
-                            } else {
-                                send(client_socket, "Error updating account balance.\n", strlen("Error updating account balance.\n"), 0);
-                            }
-                        }
-                    }
-                }
+               	{
+        	double withdraw_amount;
+        	send(client_socket, "Enter amount to withdraw: ", strlen("Enter amount to withdraw: "), 0);
+        	recv(client_socket, buffer, sizeof(buffer), 0);
+       		 withdraw_amount = atof(buffer);
+        	if (withdraw_amount <= 0) {
+            		send(client_socket, "Invalid withdraw amount.\n", strlen("Invalid withdraw amount.\n"), 0);
+        	} else {
+            		double current_balance = get_customer_amount(logged_in_cust_id);
+            		if (current_balance < 0) {
+                		send(client_socket, "Error retrieving current balance.\n", strlen("Error retrieving current balance.\n"), 0);
+            		} else if (withdraw_amount > current_balance) {
+                		send(client_socket, "Insufficient funds.\n", strlen("Insufficient funds.\n"), 0);
+            		} else {
+                		double new_balance = current_balance - withdraw_amount;
+                		if (update_customer_amount(logged_in_cust_id, new_balance)) {
+                   			 send(client_socket, "Withdrawal successful!\n", strlen("Withdrawal successful!\n"), 0);
+                    			// Log the withdrawal transaction
+                   	 		log_transaction(logged_in_cust_id, "withdraw", withdraw_amount);
+                		} else {
+                    			send(client_socket, "Error updating account balance.\n", strlen("Error updating account balance.\n"), 0);
+                			}		
+
+            		}	
+      	 	 }
+    	}
                 break;
             case 5:
                 // Transfer Funds
@@ -1192,18 +1080,20 @@ void customer_menu(int client_socket) {
 		check_loan_status(client_socket, customer_id);
 		break;
 	    case 8:
-		give_feedback(client_socket);
+		view_transaction_history(client_socket, logged_in_cust_id);
 		break;
-            case 9:
+	    case 9:
+		give_feedback_to_employee(client_socket, "employee_db.txt", "employee_feedback.txt");
+		break;
+            case 10:
                 send(client_socket, "Logged out.\n", strlen("Logged out.\n"), 0);
                 break;
             default:
                 send(client_socket, "Invalid choice! Please try again.\n", strlen("Invalid choice! Please try again.\n"), 0);
                 break;
         }
-    } while (choice != 9);
+    } while (choice != 10);
 }
-// Function to get the next employee ID in the format emp_1, emp_2, etc.
 // Function to get the next employee ID in the format emp_1, emp_2, etc.
 int get_next_employee_id_num() {
     FILE *file = fopen(EMPLOYEE_DB, "r");
@@ -1447,6 +1337,46 @@ int update_employee_password(const char* emp_id, const char* new_password) {
     return 1;
 }
 
+void view_customer_transaction_history(int client_socket, int cust_id) {
+    FILE *file = fopen("transactions_db.txt", "r");
+    if (!file) {
+        perror("Error opening transaction log file");
+        send(client_socket, "Error retrieving transaction history.\n", strlen("Error retrieving transaction history.\n"), 0);
+        return;
+    }
+
+    char line[BUFFER_SIZE];
+    char response[BUFFER_SIZE * 10] = "Customer Transaction History (Passbook):\n";
+    int has_transactions = 0;
+
+    while (fgets(line, sizeof(line), file)) {
+        int current_id;
+        char transaction_type[50];
+        double amount;
+        char timestamp[50];
+
+        // Extracting transaction details from the log
+        sscanf(line, "%d, %49[^,], %lf, %49[^\n]", &current_id, transaction_type, &amount, timestamp);
+
+        // Check if the transaction belongs to the customer
+        if (current_id == cust_id) {
+            has_transactions = 1;
+            char transaction_details[BUFFER_SIZE];
+            snprintf(transaction_details, sizeof(transaction_details), "%s: %.2lf on %s\n", transaction_type, amount, timestamp);
+            strcat(response, transaction_details);
+        }
+    }
+
+    fclose(file);
+
+    if (!has_transactions) {
+        strcat(response, "No transactions found for this customer.\n");
+    }
+
+    // Send the transaction history to the employee
+    send(client_socket, response, strlen(response), 0);
+}
+
 
 void employee_menu(int client_socket) {
     int choice;
@@ -1460,8 +1390,10 @@ void employee_menu(int client_socket) {
                 "\n===== Employee Menu =====\n"
                 "1. View Assigned Loan Applications\n"
 		"2. Approve/ Reject Loans\n"
-                "3. Change Password\n"
-                "4. Logout\n"
+		"3. View Customer Transactions\n"
+                "4. Change Password\n"
+                "Logout\n"
+		"Exit\n"
                 "Enter your choice: ");
         send(client_socket, buffer, strlen(buffer), 0);
         memset(buffer, 0, BUFFER_SIZE);
@@ -1478,10 +1410,30 @@ void employee_menu(int client_socket) {
 	    case 2:
 		approve_or_reject_loan(client_socket);
 		break;
-            case 3:
+	    case 3:
+		{
+        char cust_id_buffer[BUFFER_SIZE];
+        int target_cust_id;
+
+        // Ask for the customer ID
+        send(client_socket, "Enter the Customer ID to view transactions: ", strlen("Enter the Customer ID to view transactions: "), 0);
+        recv(client_socket, cust_id_buffer, sizeof(cust_id_buffer), 0);
+        target_cust_id = atoi(cust_id_buffer);
+
+        if (target_cust_id <= 0) {
+            send(client_socket, "Invalid Customer ID.\n", strlen("Invalid Customer ID.\n"), 0);
+        } else if (!customer_exists(target_cust_id)) {
+            send(client_socket, "Customer ID does not exist.\n", strlen("Customer ID does not exist.\n"), 0);
+        } else {
+            // Display the customer's transaction history (passbook)
+            view_customer_transaction_history(client_socket, target_cust_id);
+        }
+    }
+    break;
+            case 4:
                 change_employee_password(client_socket);
                 break;
-            case 4:
+            case 5:
                 // Logout
                 send(client_socket, "Logged out.\n", strlen("Logged out.\n"), 0);
                 break;
@@ -1490,7 +1442,7 @@ void employee_menu(int client_socket) {
                      strlen("Invalid choice! Please try again.\n"), 0);
                 break;
         }
-    } while (choice != 4);
+    } while (choice != 5);
 }
 void approve_or_reject_loan(int client_socket) {
     FILE *file = fopen(LOAN_ASSIGNMENTS_FILE, "r+");
@@ -1557,25 +1509,35 @@ void approve_or_reject_loan(int client_socket) {
     }
 }
 
-void view_feedback(int client_socket) {
-    FILE *feedback_file = fopen(FEEDBACK_FILE, "r");
-    if (!feedback_file) {
+void view_employee_feedback(int client_socket, const char *feedback_file) {
+    char line[BUFFER_SIZE];
+    int file_fd;
+
+    // Open feedback file
+    file_fd = open(feedback_file, O_RDONLY);
+    if (file_fd < 0) {
         perror("Error opening feedback file");
-        send(client_socket, "No feedback available.\n", strlen("No feedback available.\n"), 0);
+        send(client_socket, "No feedback available at the moment.\n", strlen("No feedback available at the moment.\n"), 0);
         return;
     }
 
-    char line[BUFFER_SIZE];
-    char feedback_report[BUFFER_SIZE * 100] = "Employee Feedback:\n";
-
-    while (fgets(line, sizeof(line), feedback_file)) {
-        strncat(feedback_report, line, sizeof(feedback_report) - strlen(feedback_report) - 1);
+    FILE *file = fdopen(file_fd, "r");
+    if (!file) {
+        perror("fdopen failed");
+        close(file_fd);
+        send(client_socket, "No feedback available at the moment.\n", strlen("No feedback available at the moment.\n"), 0);
+        return;
     }
-    fclose(feedback_file);
 
-    send(client_socket, feedback_report, strlen(feedback_report), 0);
+    send(client_socket, "Employee Feedbacks:\n", strlen("Employee Feedbacks:\n"), 0);
+
+    // Read and send each line of feedback to the manager
+    while (fgets(line, sizeof(line), file)) {
+        send(client_socket, line, strlen(line), 0);
+    }
+
+    fclose(file); // Close feedback file
 }
-
 
 // Function to implement manager menu
 void manager_menu(int client_socket) {
@@ -1629,26 +1591,34 @@ void manager_menu(int client_socket) {
               
 		int loan_id;
     		char employee_id[BUFFER_SIZE];
+                char formatted_emp_id[BUFFER_SIZE]; 
+		#define EMP_ID_MAX_LEN 40  
+		
+		// Ask manager for loan ID
+		send(client_socket, "Enter Loan ID: ", strlen("Enter Loan ID: "), 0);
+		recv(client_socket, buffer, sizeof(buffer), 0);
+		loan_id = atoi(buffer); 
 
-    		// Ask manager for loan ID
-    		send(client_socket, "Enter Loan ID: ", strlen("Enter Loan ID: "), 0);
-   		recv(client_socket, buffer, sizeof(buffer), 0);
-   		loan_id = atoi(buffer);  // Convert to integer
+		// Ask manager for employee ID
+		send(client_socket, "Enter Employee ID: ", strlen("Enter Employee ID: "), 0);
+		recv(client_socket, employee_id, sizeof(employee_id), 0);
+		strtok(employee_id, "\n");  // Remove any trailing newline
 
-    		// Ask manager for employee ID
-    		send(client_socket, "Enter Employee ID: ", strlen("Enter Employee ID: "), 0);
-    		recv(client_socket, employee_id, sizeof(employee_id), 0);
-    		strtok(employee_id, "\n");  // Remove any trailing newline
+		// Ensure the length of employee_id doesn't exceed the allowed maximum
+		if (strlen(employee_id) > EMP_ID_MAX_LEN) {
+    		send(client_socket, "Employee ID too long. Maximum allowed length is 40 characters.\n", BUFFER_SIZE, 0);
+   		 break;  // Exit the case or handle it as necessary
+		}
 
-    		// Ensure employee ID is in the correct format (emp_X)
-   		char formatted_emp_id[BUFFER_SIZE];
-    		snprintf(formatted_emp_id, sizeof(formatted_emp_id), "emp_%s", employee_id);
+		// Safely format employee ID
+		snprintf(formatted_emp_id, sizeof(formatted_emp_id), "emp_%.*s", EMP_ID_MAX_LEN, employee_id);
 
-    		// Call the assign_loan_to_employee_func to assign loan to employee
-    		assign_loan_to_employee_func(client_socket, loan_id, formatted_emp_id);
-  	 	break;
+		// Call the assign_loan_to_employee_func to assign loan to employee
+		assign_loan_to_employee_func(client_socket, loan_id, formatted_emp_id);
+		break;
+
 	    case 4:
-		view_feedback(client_socket);
+		view_employee_feedback(client_socket, "employee_feedback.txt");
 		break;
 	    case 5:
                 // Logout
