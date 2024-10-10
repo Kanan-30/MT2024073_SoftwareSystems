@@ -1,2 +1,4 @@
 loan_1 emp_1 Approved
-loan_4 emp_1 Rejected
+loan_2 emp_1 Approved
+loan_3 emp_3 Rejected
+loan_4 emp_2 Rejected
