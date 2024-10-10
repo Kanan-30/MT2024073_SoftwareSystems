@@ -1,6 +1,1 @@
-loan_1 emp_1 Approved
-loan_2 emp_1 Approved
-loan_3 emp_3 Rejected
-loan_4 emp_2 Rejected
-loan_5 emp_2 pending
-loan_6 emp_3 Approved
+loan_2 emp_1 pending

@@ -1,3 +1,2 @@
 
-Employee ID: emp_1, Feedback: Great Service !
-Employee ID: emp_2, Feedback: good
+Employee ID: emp_1, Feedback: good
