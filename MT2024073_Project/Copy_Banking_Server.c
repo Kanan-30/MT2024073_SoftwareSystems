@@ -558,7 +558,7 @@ int get_next_loan_id() {
     return last_id + 1;  // Return the next loan ID
 }
 // Login for customer, employee, manager and admin
-int login_user(int client_socket, const char *role_file, const char *role) {
+/*int login_user(int client_socket, const char *role_file, const char *role) {
     char buffer[BUFFER_SIZE], username[USERNAME_SIZE], password[PASSWORD_SIZE];
     char file_emp_id[10], file_username[USERNAME_SIZE], file_password[PASSWORD_SIZE];
     char line[BUFFER_SIZE];
@@ -670,31 +670,134 @@ int login_user(int client_socket, const char *role_file, const char *role) {
         }
     }
 }
+*/
 
+int login_user(int client_socket, const char *role_file, const char *role) {
+    char buffer[BUFFER_SIZE], username[50], password[50], file_emp_id[10], file_username[50], file_password[50];
+    char line[BUFFER_SIZE];
+    int file_fd;
+
+    memset(buffer, 0, BUFFER_SIZE);        // Clear the buffer
+    memset(username, 0, sizeof(username)); // Clear username
+    memset(password, 0, sizeof(password)); // Clear password
+
+    // Ask for username
+    send(client_socket, "Enter Username: ", strlen("Enter Username: "), 0);
+    recv(client_socket, username, sizeof(username), 0);
+    trim_newline(username); // Clean input
+
+    // Open the role file (e.g., customer, employee file)
+    file_fd = open(role_file, O_RDONLY);
+    if (file_fd < 0) {
+        perror("Error opening file");
+        send(client_socket, "Server error. Please try again later.\n",
+             strlen("Server error. Please try again later.\n"), 0);
+        return 0;
+    }
+
+    FILE *file = fdopen(file_fd, "r");
+    if (!file) {
+        perror("fdopen failed");
+        close(file_fd);
+        send(client_socket, "Server error. Please try again later.\n",
+             strlen("Server error. Please try again later.\n"), 0);
+        return 0;
+    }
+
+    int found = 0;
+    int current_cust_id = -1;
+    double current_amount = 000.00;
+    char current_emp_id[10] = "";
+
+    // Read each line and check if the username exists
+    while (fgets(line, sizeof(line), file)) {
+        if (strcmp(role, "Customer") == 0) {
+            // For customers, lines are: cust_id username password amount
+            int parsed = sscanf(line, "%d %s %s %lf", &current_cust_id, file_username, file_password, &current_amount);
+            if (parsed < 4) continue; // Invalid line format
+        } else if (strcmp(role, "Employee") == 0) {
+            // For employees, lines are: emp_id username password
+            int parsed = sscanf(line, "%s %s %s", file_emp_id, file_username, file_password);
+            if (parsed < 3) continue; // Invalid line format
+        } else {
+            // For other roles, lines are: username password
+            int parsed = sscanf(line, "%s %s", file_username, file_password);
+            if (parsed < 2) continue; // Invalid line format
+        }
+
+        if (strcmp(file_username, username) == 0) {
+            found = 1; // Username found
+            break;
+        }
+    }
+    fclose(file); // This also closes file_fd
+
+    if (found) {
+        // Ask for password if username exists
+        memset(password, 0, sizeof(password));
+        send(client_socket, "Enter Password: ", strlen("Enter Password: "), 0);
+        recv(client_socket, password, sizeof(password), 0);
+        trim_newline(password); // Clean input
+
+        if (strcmp(file_password, password) == 0) {
+            send(client_socket, "Login successful!\n", strlen("Login successful!\n"), 0);
+            if (strcmp(role, "Customer") == 0) {
+                // For customers, store cust_id and amount
+                logged_in_cust_id = current_cust_id;
+                logged_in_amount = current_amount;
+            }
+            strcpy(logged_in_username, username);
+            if (strcmp(role, "Employee") == 0) {
+                // Store emp_id in global variable
+                strcpy(logged_in_emp_id, file_emp_id);
+            }
+            return 1; // Successful login
+        } else {
+            send(client_socket, "Login failed! Incorrect password.\n",
+                 strlen("Login failed! Incorrect password.\n"), 0);
+            return 0; // Password mismatch
+        }
+    } else {
+        // If username not found, prompt to create a new account
+        send(client_socket, "Username not found! Create a new account? (yes/no): ",
+             strlen("Username not found! Create a new account? (yes/no): "), 0);
+        recv(client_socket, buffer, sizeof(buffer), 0);
+        trim_newline(buffer); // Clean input
+
+        if (strcasecmp(buffer, "yes") == 0) {
+            return create_new_account(client_socket, role_file, role); // Create account if yes
+        } else {
+            send(client_socket, "Login cancelled.\n", strlen("Login cancelled.\n"), 0);
+            return 0; // Cancel if no
+        }
+    }
+}
 
 // Function to create a new account
 int create_new_account(int client_socket, const char *role_file, const char *role) {
-    char username[50], password[50], buffer[BUFFER_SIZE];
+    char username[50], password[50];
     int file_fd;
+    char buffer[BUFFER_SIZE];
 
     if (strcmp(role, "Customer") == 0) {
-        // For customers, open file in append mode with system call
+        // Open file with appropriate permissions
         file_fd = open(role_file, O_WRONLY | O_APPEND | O_CREAT, 0644);
         if (file_fd < 0) {
             perror("Error opening customer file");
-            send(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"), 0);
+            write(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"));
             return 0;
         }
 
         memset(username, 0, sizeof(username)); // Clear username
         memset(password, 0, sizeof(password)); // Clear password
 
-        // Get the new username and password
-        send(client_socket, "Enter new Username: ", strlen("Enter new Username: "), 0);
+        // Get the new username
+        write(client_socket, "Enter new Username: ", strlen("Enter new Username: "));
         recv(client_socket, username, sizeof(username), 0);
         trim_newline(username); // Clean input
 
-        send(client_socket, "Enter new Password: ", strlen("Enter new Password: "), 0);
+        // Get the new password
+        write(client_socket, "Enter new Password: ", strlen("Enter new Password: "));
         recv(client_socket, password, sizeof(password), 0);
         trim_newline(password); // Clean input
 
@@ -702,64 +805,69 @@ int create_new_account(int client_socket, const char *role_file, const char *rol
         int cust_id = get_next_customer_id();
 
         // Initial amount is 0.00
-        double initial_amount = 000.00;
+        double initial_amount = 0.00;
 
-        // Create the customer record string: "cust_id username password amount\n"
+        // Prepare the line to write to the file (cust_id username password amount)
         snprintf(buffer, sizeof(buffer), "%d %s %s %.2lf\n", cust_id, username, password, initial_amount);
 
-        // Write the new customer record using write() system call
+        // Write the customer data to the file
         if (write(file_fd, buffer, strlen(buffer)) < 0) {
-            perror("Error writing to file");
+            perror("Error writing to customer file");
+            write(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"));
             close(file_fd);
             return 0;
         }
 
         close(file_fd); // Close the file descriptor
 
-        // Send success message
-        char success_msg[BUFFER_SIZE];
-        snprintf(success_msg, sizeof(success_msg), "Account created successfully! Your Customer ID is %d.\n", cust_id);
-        send(client_socket, success_msg, strlen(success_msg), 0);
+        // Notify customer about successful account creation
+        snprintf(buffer, sizeof(buffer), "Account created successfully! Your Customer ID is %d.\n", cust_id);
+        write(client_socket, buffer, strlen(buffer));
 
         return 1;
+
     } else {
-        // For other roles, similar approach
+        // Open file with appropriate permissions for other roles
         file_fd = open(role_file, O_WRONLY | O_APPEND | O_CREAT, 0644);
         if (file_fd < 0) {
-            perror("Error opening file");
-            send(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"), 0);
+            perror("Error opening role file");
+            write(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"));
             return 0;
         }
 
         memset(username, 0, sizeof(username)); // Clear username
         memset(password, 0, sizeof(password)); // Clear password
 
-        // Get the new username and password
-        send(client_socket, "Enter new Username: ", strlen("Enter new Username: "), 0);
+        // Get the new username
+        write(client_socket, "Enter new Username: ", strlen("Enter new Username: "));
         recv(client_socket, username, sizeof(username), 0);
         trim_newline(username); // Clean input
 
-        send(client_socket, "Enter new Password: ", strlen("Enter new Password: "), 0);
+        // Get the new password
+        write(client_socket, "Enter new Password: ", strlen("Enter new Password: "));
         recv(client_socket, password, sizeof(password), 0);
         trim_newline(password); // Clean input
 
-        // Create the user record string: "username password\n"
+        // Prepare the line to write to the file (username password)
         snprintf(buffer, sizeof(buffer), "%s %s\n", username, password);
 
-        // Write the new user record using write() system call
+        // Write the user data to the file
         if (write(file_fd, buffer, strlen(buffer)) < 0) {
-            perror("Error writing to file");
+            perror("Error writing to role file");
+            write(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"));
             close(file_fd);
             return 0;
         }
 
         close(file_fd); // Close the file descriptor
 
-        // Send success message
-        send(client_socket, "Account created successfully!\n", strlen("Account created successfully!\n"), 0);
+        // Notify user about successful account creation
+        write(client_socket, "Account created successfully!\n", strlen("Account created successfully!\n"));
+
         return 1;
     }
 }
+
 
 //Transfer funds from customer 1 to customer 2
 int transfer_funds(int client_socket) {
@@ -910,8 +1018,8 @@ int apply_for_loan(int client_socket) {
     float balance;
 
     // Prompt the customer for their ID
-    send(client_socket, "Enter your customer ID: ", strlen("Enter your customer ID: "), 0);
-    recv(client_socket, buffer, BUFFER_SIZE, 0);
+    write(client_socket, "Enter your customer ID: ", strlen("Enter your customer ID: "));
+    read(client_socket, buffer, BUFFER_SIZE);
     cust_id = atoi(buffer);
 
     // Open customer_db file to verify customer
@@ -922,27 +1030,33 @@ int apply_for_loan(int client_socket) {
     }
 
     int found = 0;
-
-    // Read the customer database line by line
-    while (read_line(file, line, sizeof(line)) > 0) {
-        int temp_cust_id;
-        sscanf(line, "%d %s %s %f", &temp_cust_id, file_username, file_password, &balance);
-        if (temp_cust_id == cust_id) {
-            found = 1;
-            break;
+    int bytes_read;
+    char file_buffer[BUFFER_SIZE];
+    int temp_cust_id;
+    
+    // Read the file line by line
+    while ((bytes_read = read(file, file_buffer, sizeof(file_buffer))) > 0) {
+        char *line_ptr = strtok(file_buffer, "\n");
+        while (line_ptr != NULL) {
+            sscanf(line_ptr, "%d %s %s %f", &temp_cust_id, file_username, file_password, &balance);
+            if (temp_cust_id == cust_id) {
+                found = 1;
+                break;
+            }
+            line_ptr = strtok(NULL, "\n");
         }
+        if (found) break;
     }
 
-    close(file);  // Close customer database file descriptor
-
     if (!found) {
-        send(client_socket, "Customer ID not found!\n", strlen("Customer ID not found!\n"), 0);
+        write(client_socket, "Customer ID not found!\n", strlen("Customer ID not found!\n"));
+        close(file);
         return 0;
     }
 
     // Prompt the customer for the loan amount
-    send(client_socket, "Enter loan amount: ", strlen("Enter loan amount: "), 0);
-    recv(client_socket, loan_amount, sizeof(loan_amount), 0);
+    write(client_socket, "Enter loan amount: ", strlen("Enter loan amount: "));
+    read(client_socket, loan_amount, sizeof(loan_amount));
     trim_newline(loan_amount);  // Clean input
     float loan_amt = atof(loan_amount);
 
@@ -953,6 +1067,7 @@ int apply_for_loan(int client_socket) {
     int loan_db_file = open(LOAN_DB, O_WRONLY | O_APPEND | O_CREAT, 0644);
     if (loan_db_file < 0) {
         perror("Error opening loan database");
+        close(file);
         return 0;
     }
 
@@ -960,24 +1075,20 @@ int apply_for_loan(int client_socket) {
     snprintf(buffer, sizeof(buffer), "loan_%d %d %.2f\n", loan_id, cust_id, loan_amt);
 
     // Write the loan record to the loan_db file
-    if (write(loan_db_file, buffer, strlen(buffer)) < 0) {
-        perror("Error writing to loan database");
-        close(loan_db_file);
-        return 0;
-    }
-
-    close(loan_db_file);  // Close loan database file descriptor
+    write(loan_db_file, buffer, strlen(buffer));
+    close(loan_db_file);
 
     // Notify the customer that the loan was applied successfully
-    send(client_socket, "Loan applied successfully!\n", strlen("Loan applied successfully!\n"), 0);
+    write(client_socket, "Loan applied successfully!\n", strlen("Loan applied successfully!\n"));
 
+    close(file);
     return 1;
 }
 
 //Check loan status
 int check_loan_status(int client_socket, int customer_id) {
-    int loan_db_file = open(LOAN_DB, O_RDONLY);
-    if (loan_db_file < 0) {
+    FILE *loan_db_file = fopen(LOAN_DB, "r");
+    if (!loan_db_file) {
         perror("Error opening loan database file");
         send(client_socket, "Error opening loan database file.\n", 
              strlen("Error opening loan database file.\n"), 0);
@@ -992,8 +1103,7 @@ int check_loan_status(int client_socket, int customer_id) {
     int loan_found = 0;
 
     // Scan through the loans database file
-    ssize_t bytes_read;
-    while ((bytes_read = read_line(loan_db_file, line, sizeof(line))) > 0) {
+    while (fgets(line, sizeof(line), loan_db_file)) {
         int loan_id, db_cust_id;
         double amount;
 
@@ -1003,18 +1113,18 @@ int check_loan_status(int client_socket, int customer_id) {
                 loan_found = 1;
 
                 // Check loan status in loan_assignments.txt
-                int assignment_file = open(LOAN_ASSIGNMENTS_FILE, O_RDONLY);
-                if (assignment_file < 0) {
+                FILE *assignment_file = fopen(LOAN_ASSIGNMENTS_FILE, "r");
+                if (!assignment_file) {
                     perror("Error opening loan assignment file");
                     send(client_socket, "Error opening loan assignment file.\n", 
                          strlen("Error opening loan assignment file.\n"), 0);
-                    close(loan_db_file);
+                    fclose(loan_db_file);
                     return 0;
                 }
 
                 char assignment_line[BUFFER_SIZE];
                 char status[20] = "Not Assigned";  // Default status if not found
-                while (read_line(assignment_file, assignment_line, sizeof(assignment_line)) > 0) {
+                while (fgets(assignment_line, sizeof(assignment_line), assignment_file)) {
                     int assigned_loan_id;
                     char emp_id[50], temp_status[20];
 
@@ -1027,7 +1137,7 @@ int check_loan_status(int client_socket, int customer_id) {
                         }
                     }
                 }
-                close(assignment_file);  // Close loan assignments file descriptor
+                fclose(assignment_file);
 
                 // Append loan information and status to the response
                 char loan_info[BUFFER_SIZE];
@@ -1036,8 +1146,7 @@ int check_loan_status(int client_socket, int customer_id) {
             }
         }
     }
-
-    close(loan_db_file);  // Close loan database file descriptor
+    fclose(loan_db_file);
 
     if (!loan_found) {
         send(client_socket, "No loans found for your account.\n", 
@@ -1056,51 +1165,60 @@ int change_customer_password(int client_socket) {
     char new_password[50];
 
     // Prompt for the new password
-    send(client_socket, "Enter your new password: ", strlen("Enter your new password: "), 0);
-    recv(client_socket, new_password, sizeof(new_password), 0);
-    trim_newline(new_password); // Clean input
+    write(client_socket, "Enter your new password: ", strlen("Enter your new password: "));
+    read(client_socket, new_password, sizeof(new_password));
+    trim_newline(new_password);  // Clean input
 
     // Validate new password
     if (strlen(new_password) == 0) {
-        send(client_socket, "Password cannot be empty.\n", strlen("Password cannot be empty.\n"), 0);
+        write(client_socket, "Password cannot be empty.\n", strlen("Password cannot be empty.\n"));
         return 0;
     }
 
-    // Open the customer database file for reading
+    // Open the customer database file
     int file = open(CUSTOMER_DB, O_RDONLY);
     if (file < 0) {
         perror("Error opening customer database");
-        send(client_socket, "Error opening customer database.\n", strlen("Error opening customer database.\n"), 0);
+        write(client_socket, "Error opening customer database.\n", strlen("Error opening customer database.\n"));
         return 0;
     }
 
-    // Create a temporary file for writing
+    // Open a temporary file to write the updated content
     int temp = open("customer_db.tmp", O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (temp < 0) {
         perror("Error opening temporary file");
         close(file);
-        send(client_socket, "Error opening temporary file.\n", strlen("Error opening temporary file.\n"), 0);
+        write(client_socket, "Error opening temporary file.\n", strlen("Error opening temporary file.\n"));
         return 0;
     }
 
     char line[BUFFER_SIZE];
+    int bytes_read;
     int updated = 0;
+    int cust_id;
+    char username[50], password[50];
+    double amount;
+
+    // Buffer for reading the file
+    char file_buffer[BUFFER_SIZE];
 
     // Loop through the file to find the matching username
-    while (read_line(file, line, sizeof(line)) > 0) {
-        char username[50], password[50];
-        int cust_id;
-        double amount;
+    while ((bytes_read = read(file, file_buffer, sizeof(file_buffer))) > 0) {
+        char *line_ptr = strtok(file_buffer, "\n");
+        while (line_ptr != NULL) {
+            sscanf(line_ptr, "%d %s %s %lf", &cust_id, username, password, &amount);
 
-        sscanf(line, "%d %s %s %lf", &cust_id, username, password, &amount);
-
-        if (strcmp(username, logged_in_username) == 0) {
-            // Update the password for the logged-in user
-            dprintf(temp, "%d %s %s %.2lf\n", cust_id, username, new_password, amount);
-            updated = 1;
-        } else {
-            // Write the line as-is
-            write(temp, line, strlen(line));
+            if (strcmp(username, logged_in_username) == 0) {
+                // Update the password for the logged-in user
+                snprintf(line, sizeof(line), "%d %s %s %.2lf\n", cust_id, username, new_password, amount);
+                write(temp, line, strlen(line));
+                updated = 1;
+            } else {
+                // Write the line as-is
+                strncat(line_ptr, "\n", 1);  // Add the newline back
+                write(temp, line_ptr, strlen(line_ptr));
+            }
+            line_ptr = strtok(NULL, "\n");
         }
     }
 
@@ -1109,17 +1227,13 @@ int change_customer_password(int client_socket) {
 
     // If the password was updated, rename the temp file to replace the original file
     if (updated) {
-        if (rename("customer_db.tmp", CUSTOMER_DB) < 0) {
-            perror("Error renaming temporary file");
-            send(client_socket, "Error updating password.\n", strlen("Error updating password.\n"), 0);
-            return 0;
-        }
-        send(client_socket, "Password changed successfully!\n", strlen("Password changed successfully!\n"), 0);
+        rename("customer_db.tmp", CUSTOMER_DB);
+        write(client_socket, "Password changed successfully!\n", strlen("Password changed successfully!\n"));
         return 1;
     } else {
         // Clean up the temporary file if no changes were made
         remove("customer_db.tmp");
-        send(client_socket, "Error: Username not found.\n", strlen("Error: Username not found.\n"), 0);
+        write(client_socket, "Error: Username not found.\n", strlen("Error: Username not found.\n"));
         return 0;
     }
 }
@@ -1141,7 +1255,7 @@ void give_feedback_to_employee(int client_socket, const char *employee_db, const
     char buffer[BUFFER_SIZE];
     int file_fd;
 
-    // Step 1: Open employee_db to display list of employees
+    // Open employee_db to display list of employees
     file_fd = open(employee_db, O_RDONLY);
     if (file_fd < 0) {
         perror("Error opening employee database");
@@ -1149,10 +1263,18 @@ void give_feedback_to_employee(int client_socket, const char *employee_db, const
         return;
     }
 
-    // Step 2: Read and display the list of employees
+    FILE *file = fdopen(file_fd, "r");
+    if (!file) {
+        perror("fdopen failed");
+        close(file_fd);
+        send(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"), 0);
+        return;
+    }
+
+    // Step 1: Display the list of employees
     send(client_socket, "List of employees available for feedback:\n", strlen("List of employees available for feedback:\n"), 0);
 
-    while (read_line(file_fd, line, sizeof(line)) > 0) {
+    while (fgets(line, sizeof(line), file)) {
         // Assuming employee lines are in the format: emp_id username password
         int parsed = sscanf(line, "%s %s", emp_id, emp_username);
         if (parsed < 2) continue; // Invalid line format, skip
@@ -1161,20 +1283,19 @@ void give_feedback_to_employee(int client_socket, const char *employee_db, const
         snprintf(buffer, sizeof(buffer), "Employee ID: %s, Username: %s\n", emp_id, emp_username);
         send(client_socket, buffer, strlen(buffer), 0);
     }
+    fclose(file); // Close employee file
 
-    close(file_fd); // Close employee file
-
-    // Step 3: Ask the customer to select an employee for feedback
+    // Step 2: Ask the customer to select an employee for feedback
     send(client_socket, "Enter the Employee ID you want to give feedback to: ", strlen("Enter the Employee ID you want to give feedback to: "), 0);
     recv(client_socket, selected_emp_id, sizeof(selected_emp_id), 0);
     trim_newline_and_control_chars(selected_emp_id); // Clean input
 
-    // Step 4: Ask the customer to provide feedback
+    // Step 3: Ask the customer to provide feedback
     send(client_socket, "Enter your feedback: ", strlen("Enter your feedback: "), 0);
     recv(client_socket, feedback, sizeof(feedback), 0);
     trim_newline_and_control_chars(feedback); // Clean input
 
-    // Step 5: Store the feedback in the feedback file
+    // Step 4: Store the feedback in the feedback file
     file_fd = open(feedback_file, O_WRONLY | O_APPEND | O_CREAT, 0644);
     if (file_fd < 0) {
         perror("Error opening feedback file");
@@ -1182,11 +1303,18 @@ void give_feedback_to_employee(int client_socket, const char *employee_db, const
         return;
     }
 
-    // Write feedback to the file (emp_id: feedback)
-    snprintf(buffer, sizeof(buffer), "Employee ID: %s, Feedback: %s\n", selected_emp_id, feedback);
-    write(file_fd, buffer, strlen(buffer));
+    FILE *feedback_fp = fdopen(file_fd, "a");
+    if (!feedback_fp) {
+        perror("fdopen failed");
+        close(file_fd);
+        send(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"), 0);
+        return;
+    }
 
-    close(file_fd); // Close feedback file
+    // Write feedback to the file (emp_id: feedback)
+    fprintf(feedback_fp, "Employee ID: %s, Feedback: %s\n", selected_emp_id, feedback);
+
+    fclose(feedback_fp); // Close feedback file
 
     send(client_socket, "Feedback submitted successfully!\n", strlen("Feedback submitted successfully!\n"), 0);
 }
@@ -1458,9 +1586,8 @@ int view_assigned_loans(int client_socket) {
         return 0;
     }
 
-    // Open loan assignments file using system calls
-    int assignment_fd = open(LOAN_ASSIGNMENTS_FILE, O_RDONLY);
-    if (assignment_fd < 0) {
+    FILE *assignment_file = fopen(LOAN_ASSIGNMENTS_FILE, "r");
+    if (!assignment_file) {
         perror("Error opening loan assignments file");
         send(client_socket, "Error opening loan assignments file.\n", 
              strlen("Error opening loan assignments file.\n"), 0);
@@ -1473,10 +1600,7 @@ int view_assigned_loans(int client_socket) {
     int count = 0;
     char line[BUFFER_SIZE];
 
-    // Read from the loan assignments file
-    ssize_t bytes_read;
-    while ((bytes_read = read(assignment_fd, line, sizeof(line) - 1)) > 0) {
-        line[bytes_read] = '\0'; // Null-terminate the string
+    while (fgets(line, sizeof(line), assignment_file)) {
         char temp_loan_id[BUFFER_SIZE], temp_employee_id[BUFFER_SIZE], temp_status[20];
         sscanf(line, "%s %s %s", temp_loan_id, temp_employee_id, temp_status);
         
@@ -1490,16 +1614,16 @@ int view_assigned_loans(int client_socket) {
             if (count >= 100) break;  // Prevent overflow
         }
     }
-    close(assignment_fd); // Close the loan assignments file descriptor
+    fclose(assignment_file);
 
     if (count == 0) {
         send(client_socket, "No loan applications assigned to you.\n", strlen("No loan applications assigned to you.\n"), 0);
         return 1;
     }
 
-    // Open loans_db.txt to fetch loan details using system calls
-    int loan_db_fd = open(LOAN_DB, O_RDONLY);
-    if (loan_db_fd < 0) {
+    // Open loans_db.txt to fetch loan details
+    FILE *loan_db_file = fopen(LOAN_DB, "r");
+    if (!loan_db_file) {
         perror("Error opening loans database file");
         send(client_socket, "Error opening loans database file.\n", strlen("Error opening loans database file.\n"), 0);
         return 0;
@@ -1508,7 +1632,7 @@ int view_assigned_loans(int client_socket) {
     // Prepare the response
     char response[BUFFER_SIZE * 10] = "Your Assigned Loan Applications:\nLoan ID\tCustomer ID\tAmount\tStatus\n";
     for (int i = 0; i < count; i++) {
-        lseek(loan_db_fd, 0, SEEK_SET);  // Reset file pointer to beginning
+        rewind(loan_db_file);  // Reset file pointer to beginning
         int found = 0;
         char loan_line[BUFFER_SIZE];
         int cust_id;
@@ -1518,8 +1642,7 @@ int view_assigned_loans(int client_socket) {
         char loan_id_str[20];
         snprintf(loan_id_str, sizeof(loan_id_str), "loan_%d", loan_ids[i]);
 
-        while ((bytes_read = read(loan_db_fd, loan_line, sizeof(loan_line) - 1)) > 0) {
-            loan_line[bytes_read] = '\0'; // Null-terminate the string
+        while (fgets(loan_line, sizeof(loan_line), loan_db_file)) {
             char current_loan_id[20];
             if (sscanf(loan_line, "%s %d %lf", current_loan_id, &cust_id, &amount) == 3) {
                 if (strcmp(current_loan_id, loan_id_str) == 0) {
@@ -1541,14 +1664,13 @@ int view_assigned_loans(int client_socket) {
         }
     }
 
-    close(loan_db_fd); // Close the loans database file descriptor
+    fclose(loan_db_file);
 
     // Send the response to the employee
     send(client_socket, response, strlen(response), 0);
 
     return 1;
 }
-
 
 // CHange employee password
 int change_employee_password(int client_socket) {
@@ -1650,9 +1772,8 @@ int update_employee_password(const char* emp_id, const char* new_password) {
 
 //Customer Transaction History
 void view_customer_transaction_history(int client_socket, int cust_id) {
-    // Open the transaction log file in read mode
-    int file_fd = open("transactions_db.txt", O_RDONLY);
-    if (file_fd < 0) {
+    FILE *file = fopen("transactions_db.txt", "r");
+    if (!file) {
         perror("Error opening transaction log file");
         send(client_socket, "Error retrieving transaction history.\n", strlen("Error retrieving transaction history.\n"), 0);
         return;
@@ -1662,32 +1783,28 @@ void view_customer_transaction_history(int client_socket, int cust_id) {
     char response[BUFFER_SIZE * 10] = "Customer Transaction History (Passbook):\n";
     int has_transactions = 0;
 
-    // Read lines from the transaction log file
-    ssize_t bytes_read;
-    while ((bytes_read = read(file_fd, line, sizeof(line) - 1)) > 0) {
-        line[bytes_read] = '\0'; // Null-terminate the line
+    while (fgets(line, sizeof(line), file)) {
         int current_id;
         char transaction_type[50];
         double amount;
         char timestamp[50];
 
         // Extracting transaction details from the log
-        if (sscanf(line, "%d, %49[^,], %lf, %49[^\n]", &current_id, transaction_type, &amount, timestamp) == 4) {
-            // Check if the transaction belongs to the customer
-            if (current_id == cust_id) {
-                has_transactions = 1;
-                char transaction_details[BUFFER_SIZE];
-                snprintf(transaction_details, sizeof(transaction_details), "%s: %.2lf on %s\n", transaction_type, amount, timestamp);
-                strncat(response, transaction_details, sizeof(response) - strlen(response) - 1);
-            }
+        sscanf(line, "%d, %49[^,], %lf, %49[^\n]", &current_id, transaction_type, &amount, timestamp);
+
+        // Check if the transaction belongs to the customer
+        if (current_id == cust_id) {
+            has_transactions = 1;
+            char transaction_details[BUFFER_SIZE];
+            snprintf(transaction_details, sizeof(transaction_details), "%s: %.2lf on %s\n", transaction_type, amount, timestamp);
+            strcat(response, transaction_details);
         }
     }
 
-    // Close the transaction log file
-    close(file_fd);
+    fclose(file);
 
     if (!has_transactions) {
-        strncat(response, "No transactions found for this customer.\n", sizeof(response) - strlen(response) - 1);
+        strcat(response, "No transactions found for this customer.\n");
     }
 
     // Send the transaction history to the employee
@@ -1778,14 +1895,13 @@ void employee_menu(int client_socket) {
 
 //Approve or Reject Loans
 void approve_or_reject_loan(int client_socket) {
-    int file = open(LOAN_ASSIGNMENTS_FILE, O_RDWR);
+    FILE *file = fopen(LOAN_ASSIGNMENTS_FILE, "r+");
     char buffer[BUFFER_SIZE];
     char loan_id[50], status[20];
     int choice;
 
-    if (file < 0) {
-        send(client_socket, "Error opening loan assignments file.\n", 
-             strlen("Error opening loan assignments file.\n"), 0);
+    if (!file) {
+        send(client_socket, "Error opening loan assignments file.\n", strlen("Error opening loan assignments file.\n"), 0);
         return;
     }
 
@@ -1793,14 +1909,12 @@ void approve_or_reject_loan(int client_socket) {
     view_assigned_loans(client_socket);
 
     // Ask employee to enter Loan ID
-    send(client_socket, "Enter Loan ID to approve/reject: ", 
-         strlen("Enter Loan ID to approve/reject: "), 0);
+    send(client_socket, "Enter Loan ID to approve/reject: ", strlen("Enter Loan ID to approve/reject: "), 0);
     recv(client_socket, loan_id, sizeof(loan_id), 0);
     strtok(loan_id, "\n");
 
     // Ask for approval or rejection
-    send(client_socket, "Enter 1 to Approve, 2 to Reject: ", 
-         strlen("Enter 1 to Approve, 2 to Reject: "), 0);
+    send(client_socket, "Enter 1 to Approve, 2 to Reject: ", strlen("Enter 1 to Approve, 2 to Reject: "), 0);
     recv(client_socket, buffer, sizeof(buffer), 0);
     choice = atoi(buffer);
 
@@ -1810,18 +1924,16 @@ void approve_or_reject_loan(int client_socket) {
         strcpy(status, "Rejected");
     } else {
         send(client_socket, "Invalid choice!\n", strlen("Invalid choice!\n"), 0);
-        close(file);
+        fclose(file);
         return;
     }
 
-    // Prepare to read and update the file
+    // Now update the loan status in the file
     char line[BUFFER_SIZE];
     char updated_loans[BUFFER_SIZE * 100] = "";
     int loan_found = 0;
-    ssize_t bytes_read;
 
-    while ((bytes_read = read(file, line, sizeof(line))) > 0) {
-        line[bytes_read] = '\0';  // Null-terminate the line
+    while (fgets(line, sizeof(line), file)) {
         char temp_loan_id[50], temp_employee_id[50], temp_status[20];
         sscanf(line, "%s %s %s", temp_loan_id, temp_employee_id, temp_status);
 
@@ -1835,19 +1947,15 @@ void approve_or_reject_loan(int client_socket) {
         strncat(updated_loans, line, sizeof(updated_loans) - strlen(updated_loans) - 1);
     }
 
-    // Truncate the original file and write back the updated loans
-    lseek(file, 0, SEEK_SET);  // Reset file pointer to the beginning
-    ftruncate(file, 0);        // Truncate the file to zero length
-    write(file, updated_loans, strlen(updated_loans));  // Write updated loans
-
-    close(file);
+    // Write back the updated loans to the file
+    freopen(LOAN_ASSIGNMENTS_FILE, "w", file);
+    fputs(updated_loans, file);
+    fclose(file);
 
     if (loan_found) {
-        send(client_socket, "Loan status updated successfully.\n", 
-             strlen("Loan status updated successfully.\n"), 0);
+        send(client_socket, "Loan status updated successfully.\n", strlen("Loan status updated successfully.\n"), 0);
     } else {
-        send(client_socket, "Loan ID not found.\n", 
-             strlen("Loan ID not found.\n"), 0);
+        send(client_socket, "Loan ID not found.\n", strlen("Loan ID not found.\n"), 0);
     }
 }
 
@@ -2049,7 +2157,6 @@ int update_customer_status_func(int client_socket, int cust_id, int new_status) 
 
 //Assign loan to employee
 int assign_loan_to_employee_func(int client_socket, int loan_id, const char *employee_id) {
-    int assignment_file;
     char line[BUFFER_SIZE];
     char all_assignments[BUFFER_SIZE * 100] = "";  // Buffer to hold all assignments
     int found = 0;
@@ -2058,46 +2165,60 @@ int assign_loan_to_employee_func(int client_socket, int loan_id, const char *emp
     char formatted_line[BUFFER_SIZE];  // Buffer to store the formatted line for file output
     snprintf(formatted_loan_id, sizeof(formatted_loan_id), "loan_%d", loan_id);  // Format loan ID
 
-    // Open loan_assignments file
-    assignment_file = open(LOAN_ASSIGNMENTS_FILE, O_RDWR);
+    // Open loan_assignments file using system calls
+    int assignment_file = open(LOAN_ASSIGNMENTS_FILE, O_RDWR);
     if (assignment_file < 0) {
         perror("Error opening loan assignment file");
-        write(client_socket, "Error opening loan assignment file.\n", strlen("Error opening loan assignment file.\n"));
+        write(client_socket, "Error opening loan assignment file.\n", 
+              strlen("Error opening loan assignment file.\n"));
         return 0;
     }
 
-    // Read through the file and check for existing assignment for the loan
-    while (read(assignment_file, line, sizeof(line)) > 0) {
-        // Check for new line character to separate entries
-        line[strcspn(line, "\n")] = 0;  // Remove the newline character for processing
+    // Read the file into buffer using system calls
+    char file_buffer[BUFFER_SIZE * 10] = "";
+    int bytes_read = read(assignment_file, file_buffer, sizeof(file_buffer) - 1);
+    if (bytes_read < 0) {
+        perror("Error reading loan assignment file");
+        close(assignment_file);
+        return 0;
+    }
+    file_buffer[bytes_read] = '\0';  // Ensure the buffer is null-terminated
 
+    // Tokenize each line and process it
+    char *line_ptr = strtok(file_buffer, "\n");
+    while (line_ptr != NULL) {
         char temp_loan_id[50], temp_employee_id[50], temp_status[20];
-        sscanf(line, "%s %s %s", temp_loan_id, temp_employee_id, temp_status);
+        sscanf(line_ptr, "%s %s %s", temp_loan_id, temp_employee_id, temp_status);
 
         // If loan_id is found, update the employee_id but keep the status
         if (strcmp(temp_loan_id, formatted_loan_id) == 0) {
             found = 1;
             // Keep the existing status and update the employee ID
             snprintf(formatted_line, sizeof(formatted_line), "%s %s %s\n", formatted_loan_id, employee_id, temp_status);
-            strncpy(line, formatted_line, sizeof(line) - 1);  // Update the line buffer
-            line[sizeof(line) - 1] = '\0';  // Ensure null-termination
+        } else {
+            // Preserve the original line
+            snprintf(formatted_line, sizeof(formatted_line), "%s\n", line_ptr);
         }
 
         // Add the (possibly updated) line to all_assignments buffer
-        strncat(all_assignments, line, sizeof(all_assignments) - strlen(all_assignments) - 1);
+        strncat(all_assignments, formatted_line, sizeof(all_assignments) - strlen(all_assignments) - 1);
+
+        // Get the next line
+        line_ptr = strtok(NULL, "\n");
     }
 
+    // If loan assignment not found, add a new entry with "pending" status
     if (!found) {
-        // If loan assignment not found, add a new entry with "pending" status
         snprintf(formatted_line, sizeof(formatted_line), "%s %s pending\n", formatted_loan_id, employee_id);
         strncat(all_assignments, formatted_line, sizeof(all_assignments) - strlen(all_assignments) - 1);
     }
 
     // Truncate the file and write all assignments back
-    ftruncate(assignment_file, 0); // Truncate the file to zero length
-    lseek(assignment_file, 0, SEEK_SET); // Move the file pointer to the beginning
-    write(assignment_file, all_assignments, strlen(all_assignments));
-    close(assignment_file); // Close the file
+    lseek(assignment_file, 0, SEEK_SET);  // Move file pointer to the beginning
+    ftruncate(assignment_file, 0);  // Truncate the file to remove old content
+    write(assignment_file, all_assignments, strlen(all_assignments));  // Write the updated content
+
+    close(assignment_file);  // Close the file
 
     // Notify manager of the assignment update
     write(client_socket, "Loan assigned to employee successfully with 'pending' status.\n",
