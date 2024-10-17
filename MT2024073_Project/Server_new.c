@@ -24,6 +24,9 @@
 #define CUSTOMER_STATUS_FILE "customer_status.txt"
 #define LOAN_ASSIGNMENTS_FILE "loan_assignments.txt"
 #define FEEDBACK_FILE "employee_feedback.txt" 
+#define EMP_ID_SIZE 50
+#define FEEDBACK_SIZE 900
+
 
 typedef struct {
     char cust_id[10];   
@@ -923,14 +926,17 @@ int change_customer_password(int client_socket) {
         return 0;
     }
 }
+
+
 void give_feedback_to_employee(int client_socket, const char *employee_db, const char *feedback_file) {
     char line[BUFFER_SIZE], emp_id[20], emp_username[50];
     char selected_emp_id[20], feedback[BUFFER_SIZE];
     char buffer[BUFFER_SIZE];
+    char temp_input[10]; // For capturing the "Enter" press
     int file_fd;
     ssize_t bytes_read;
 
-    // Open employee_db to display list of employees
+    // Step 1: Open employee_db to display list of employees
     file_fd = open(employee_db, O_RDONLY);
     if (file_fd < 0) {
         perror("Error opening employee database");
@@ -938,31 +944,34 @@ void give_feedback_to_employee(int client_socket, const char *employee_db, const
         return;
     }
 
-    // Step 1: Display the list of employees
+    // Step 2: Display the initial message and prompt the user to press Enter
     write(client_socket, "List of employees available for feedback:\n", strlen("List of employees available for feedback:\n"));
+    write(client_socket, "Press Enter to continue...\n", strlen("Press Enter to continue...\n"));
 
+    // Wait for the user to press Enter (read from the socket)
+    read(client_socket, temp_input, sizeof(temp_input));
+
+    // Step 3: Display the list of employees
     while ((bytes_read = read_line(file_fd, line, sizeof(line))) > 0) {
-        // Assuming employee lines are in the format: emp_id username password
         int parsed = sscanf(line, "%s %s", emp_id, emp_username);
-        if (parsed < 2) continue; // Invalid line format, skip
+        if (parsed < 2) continue;
 
-        // Send employee info to the customer
         snprintf(buffer, sizeof(buffer), "Employee ID: %s, Username: %s\n", emp_id, emp_username);
         write(client_socket, buffer, strlen(buffer));
     }
     close(file_fd); // Close employee database file
 
-    // Step 2: Ask the customer to select an employee for feedback
+    // Step 4: Ask the customer to select an employee for feedback
     write(client_socket, "Enter the Employee ID you want to give feedback to: ", strlen("Enter the Employee ID you want to give feedback to: "));
-    read(client_socket, selected_emp_id, sizeof(selected_emp_id));
-    trim_newline_and_control_chars(selected_emp_id); // Clean input
+    read(client_socket, selected_emp_id, sizeof(selected_emp_id) - 1);
+    trim_newline_and_control_chars(selected_emp_id);
 
-    // Step 3: Ask the customer to provide feedback
+    // Step 5: Ask the customer to provide feedback
     write(client_socket, "Enter your feedback: ", strlen("Enter your feedback: "));
-    read(client_socket, feedback, sizeof(feedback));
-    trim_newline_and_control_chars(feedback); // Clean input
+    read(client_socket, feedback, sizeof(feedback) - 1);
+    trim_newline_and_control_chars(feedback);
 
-    // Step 4: Store the feedback in the feedback file
+    // Step 6: Store the feedback in the feedback file
     file_fd = open(feedback_file, O_WRONLY | O_APPEND | O_CREAT, 0644);
     if (file_fd < 0) {
         perror("Error opening feedback file");
@@ -970,10 +979,7 @@ void give_feedback_to_employee(int client_socket, const char *employee_db, const
         return;
     }
 
-    // Construct feedback entry
-    snprintf(buffer, sizeof(buffer), "Employee ID: %s, Feedback: %s\n", selected_emp_id, feedback);
-
-    // Write feedback to the feedback file
+    snprintf(buffer, sizeof(buffer), "Employee ID: %.48s, Feedback: %.896s\n", selected_emp_id, feedback);
     if (write(file_fd, buffer, strlen(buffer)) < 0) {
         perror("Error writing to feedback file");
         write(client_socket, "Error submitting feedback.\n", strlen("Error submitting feedback.\n"));
@@ -981,12 +987,9 @@ void give_feedback_to_employee(int client_socket, const char *employee_db, const
         return;
     }
 
-    close(file_fd); // Close feedback file
-
-    // Notify the client
+    close(file_fd);
     write(client_socket, "Feedback submitted successfully!\n", strlen("Feedback submitted successfully!\n"));
 }
-
 
 
 void customer_menu(int client_socket) {
