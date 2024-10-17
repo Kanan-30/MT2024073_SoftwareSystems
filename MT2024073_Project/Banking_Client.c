@@ -5,7 +5,7 @@
 #include <arpa/inet.h>
 
 #define SERVER_IP "127.0.0.1"
-#define PORT 5080
+#define PORT 5081
 #define BUFFER_SIZE 1024
 
 int main() {
@@ -37,14 +37,18 @@ int main() {
         while (1) {
             // Main role selection menu
             memset(buffer, 0, BUFFER_SIZE);
-            recv(sock, buffer, BUFFER_SIZE, 0); // Receive the main driver menu (role selection)
+	    recv(sock, buffer, BUFFER_SIZE, 0); // Receive the main driver menu (role selection)
             printf("%s", buffer);  // Display the main menu to the client
 
             // Get the user's role selection (Customer, Employee, Manager, Admin)
             fgets(buffer, BUFFER_SIZE, stdin);
-            send(sock, buffer, strlen(buffer), 0); // Send the selected role to the server
+            //send(sock, buffer, strlen(buffer), 0); // Send the selected role to the server
+            
+	    buffer[strcspn(buffer, "\n")] = 0; // Remove newline
+            send(sock, buffer, strlen(buffer), 0);
 
             int logged_out = 0;  // Track whether the user logged out to re-display the main menu
+
 
             // Inside the selected role menu loop (Customer, Employee, Manager, Admin)
             while (1) {
