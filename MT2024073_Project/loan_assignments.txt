@@ -1,2 +1,3 @@
 loan_1 emp_1 Approved
-loan_2 emp_1 Rejected
+loan_2 emp_exit Rejected
+loan_0 emp_ pending
