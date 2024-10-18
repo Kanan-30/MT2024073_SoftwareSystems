@@ -80,11 +80,9 @@ void view_customer_transaction_history(int client_socket, int cust_id) ;
 int admin_login(int client_socket);
 int manager_login(int client_socket);
 int employee_login(int client_socket);
-void activate_customer(int client_socket, const char *cust_id);
-void deactivate_customer(int client_socket, const char *cust_id);
-void modify_customer_status(const char *cust_id, const char *new_status, int client_socket);
-void list_customers(int client_socket);
-
+void activate_customer_account(int client_socket);
+void deactivate_customer_account(int client_socket);
+int update_customer_status(int cust_id, const char *new_status);
 
 // Main function
 int main() {
@@ -362,7 +360,7 @@ int update_customer_amount(int cust_id, double new_amount) {
 }
 
 
-int create_new_account(int client_socket, const char *role_file, const char *role) {
+/*int create_new_account(int client_socket, const char *role_file, const char *role) {
     char username[50], password[50];
     memset(username, 0, sizeof(username));
     memset(password, 0, sizeof(password));
@@ -396,7 +394,63 @@ int create_new_account(int client_socket, const char *role_file, const char *rol
     snprintf(success_msg, sizeof(success_msg), "Account created successfully! Your Customer ID is %d.\n", cust_id);
     send(client_socket, success_msg, strlen(success_msg), 0);
     return 1;
+}*/
+int create_new_account(int client_socket, const char *role_file, const char *role) {
+    char username[50], password[50];
+    memset(username, 0, sizeof(username));
+    memset(password, 0, sizeof(password));
+
+    // Get username and password from the client
+    send(client_socket, "Enter new Username: ", strlen("Enter new Username: "), 0);
+    recv(client_socket, username, sizeof(username), 0);
+    trim_newline(username);
+
+    send(client_socket, "Enter new Password: ", strlen("Enter new Password: "), 0);
+    recv(client_socket, password, sizeof(password), 0);
+    trim_newline(password);
+
+    // Generate a new customer ID
+    int cust_id = get_next_customer_id();
+
+    // Create a new customer struct
+    Customer new_customer;
+    snprintf(new_customer.cust_id, sizeof(new_customer.cust_id), "%d", cust_id); // Store cust_id as a string
+    strncpy(new_customer.username, username, sizeof(new_customer.username) - 1);
+    strncpy(new_customer.password, password, sizeof(new_customer.password) - 1);
+    snprintf(new_customer.amount, sizeof(new_customer.amount), "%.2f", 0.00); // Store initial amount as a string
+
+    // Open customer database file and append new customer record
+    int fd = open(CUSTOMER_DB, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd < 0) {
+        perror("Error opening customer file");
+        send(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"), 0);
+        return 0;
+    }
+    write(fd, &new_customer, sizeof(Customer));
+    close(fd);
+
+    // Now add an entry to customer_status.txt with default status "active"
+    int status_fd = open("customer_status.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (status_fd < 0) {
+        perror("Error opening customer status file");
+        send(client_socket, "Server error. Please try again later.\n", strlen("Server error. Please try again later.\n"), 0);
+        return 0;
+    }
+
+    // Write customer ID and "active" status
+    char status_entry[50];
+    snprintf(status_entry, sizeof(status_entry), "%d active\n", cust_id);
+    write(status_fd, status_entry, strlen(status_entry));
+    close(status_fd);
+
+    // Notify the client that the account was created successfully
+    char success_msg[BUFFER_SIZE];
+    snprintf(success_msg, sizeof(success_msg), "Account created successfully! Your Customer ID is %d.\n", cust_id);
+    send(client_socket, success_msg, strlen(success_msg), 0);
+
+    return 1;
 }
+
 
 
 /*int login_user(int client_socket, const char *role_file, const char *role) {
@@ -1905,6 +1959,102 @@ int manager_login(int client_socket) {
     }
 }
 
+void activate_customer_account(int client_socket) {
+    int cust_id;
+    char buffer[BUFFER_SIZE];
+
+    // Ask manager for the customer ID
+    write(client_socket, "Enter Customer ID to activate: ", strlen("Enter Customer ID to activate: "));
+    memset(buffer, 0, BUFFER_SIZE);
+    read(client_socket, buffer, sizeof(buffer));
+    cust_id = atoi(buffer);
+
+    // Modify the customer_status.txt file to activate the customer
+    if (update_customer_status(cust_id, "active")) {
+        write(client_socket, "Customer account activated successfully.\n", strlen("Customer account activated successfully.\n"));
+    } else {
+        write(client_socket, "Failed to activate customer account. Customer ID not found.\n", strlen("Failed to activate customer account. Customer ID not found.\n"));
+    }
+}
+
+void deactivate_customer_account(int client_socket) {
+    int cust_id;
+    char buffer[BUFFER_SIZE];
+
+    // Ask manager for the customer ID
+    write(client_socket, "Enter Customer ID to deactivate: ", strlen("Enter Customer ID to deactivate: "));
+    memset(buffer, 0, BUFFER_SIZE);
+    read(client_socket, buffer, sizeof(buffer));
+    cust_id = atoi(buffer);
+
+    // Modify the customer_status.txt file to deactivate the customer
+    if (update_customer_status(cust_id, "deactivated")) {
+        write(client_socket, "Customer account deactivated successfully.\n", strlen("Customer account deactivated successfully.\n"));
+    } else {
+        write(client_socket, "Failed to deactivate customer account. Customer ID not found.\n", strlen("Failed to deactivate customer account. Customer ID not found.\n"));
+    }
+}
+int update_customer_status(int cust_id, const char *new_status) {
+    char line[BUFFER_SIZE];
+    char all_statuses[BUFFER_SIZE * 100] = "";  // Buffer to hold all lines of status
+    int found = 0;
+
+    // Open customer_status.txt for reading and writing
+    int status_file = open("customer_status.txt", O_RDWR);
+    if (status_file < 0) {
+        perror("Error opening customer status file");
+        return 0;
+    }
+
+    // Read the entire file into buffer
+    char file_buffer[BUFFER_SIZE * 10] = "";
+    int bytes_read = read(status_file, file_buffer, sizeof(file_buffer) - 1);
+    if (bytes_read < 0) {
+        perror("Error reading customer status file");
+        close(status_file);
+        return 0;
+    }
+    file_buffer[bytes_read] = '\0';  // Ensure the buffer is null-terminated
+
+    // Tokenize the file line by line
+    char *line_ptr = strtok(file_buffer, "\n");
+    while (line_ptr != NULL) {
+        int temp_cust_id;
+        char temp_status[20];
+
+        // Parse the customer ID and status from each line
+        sscanf(line_ptr, "%d %s", &temp_cust_id, temp_status);
+
+        // If the customer ID matches, update the status
+        if (temp_cust_id == cust_id) {
+            found = 1;
+            snprintf(line, sizeof(line), "%d %s\n", temp_cust_id, new_status);
+        } else {
+            // Keep the line unchanged
+            snprintf(line, sizeof(line), "%s\n", line_ptr);
+        }
+
+        // Append the (possibly updated) line to the all_statuses buffer
+        strncat(all_statuses, line, sizeof(all_statuses) - strlen(all_statuses) - 1);
+
+        // Get the next line
+        line_ptr = strtok(NULL, "\n");
+    }
+
+    // If the customer ID was not found, return an error
+    if (!found) {
+        close(status_file);
+        return 0;
+    }
+
+    // Truncate the file and write the updated data
+    lseek(status_file, 0, SEEK_SET);  // Move file pointer to the beginning
+    ftruncate(status_file, 0);  // Truncate the file to remove old content
+    write(status_file, all_statuses, strlen(all_statuses));  // Write the updated content
+
+    close(status_file);
+    return 1;
+}
 
 // Function to implement manager menu
 void manager_menu(int client_socket) {
@@ -1936,10 +2086,12 @@ void manager_menu(int client_socket) {
         switch (choice) {
             case 1:
                 // Activate customer account
+		activate_customer_account(client_socket);
                          break;
 
             case 2:
                 // Deactivate customer account
+		deactivate_customer_account(client_socket);
                          break;
 
             case 3:
